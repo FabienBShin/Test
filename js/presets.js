@@ -1,0 +1,250 @@
+// 기본 프리셋 세계관 6종.
+// 능력치 값은 기준값이다. API 키가 있으면 게임 시작 때 AI가 주인공 성격에 맞게 다시 정한다.
+
+// 일과: 새벽 아침 오전 점심 오후 저녁 밤 순서로 장소 id를 적는다.
+const PERIOD_KEYS = ['dawn', 'morning', 'forenoon', 'lunch', 'afternoon', 'evening', 'night'];
+const sch = (s) => Object.fromEntries(s.split(' ').map((place, i) => [PERIOD_KEYS[i], place]));
+// NPC끼리의 관계는 방향이 있다(A가 B를 어떻게 보는지).
+const rels = (list) => {
+  const o = {};
+  for (const [a, b, affection, trust, love = 0] of list) (o[a] ??= {})[b] = { affection, trust, love };
+  return o;
+};
+
+const baseEndings = [
+  { id: 'good', title: '좋은 결말', description: '목표를 이뤄냈다.' },
+  { id: 'normal', title: '평범한 결말', description: '절반의 성공.' },
+  { id: 'bad', title: '나쁜 결말', description: '목표를 이루지 못했다.' },
+];
+
+export const PRESETS = [
+  {
+    id: 'fantasy',
+    emoji: '🏰',
+    name: '판타지 왕국: 변방 마을',
+    summary: '변방 마을 에른에 도착한 신입 모험가. 길드, 여관, 영주 사이의 갈등이 커지고 있다.',
+    tone: '모험, 정치적 긴장, 따뜻한 마을 사람들',
+    modules: { economy: true, stats: true },
+    currency: '골드',
+    time: { startDay: 1, startHour: 8, defaultMinutes: 60, minMinutes: 10, maxMinutes: 480 },
+    goal: { title: '마을의 신뢰 얻기', description: '30일 안에 길드 등급을 올리고 마을의 분쟁을 해결한다.', days: 30 },
+    endings: baseEndings,
+    protagonist: {
+      role: '신입 모험가', background: '먼 도시에서 온 떠돌이 검사.',
+      name: '레온', personality: '솔직하고 정의감이 강함', appearance: '짧은 갈색 머리, 낡은 가죽 갑옷',
+      stats: { 힘: 3, 지혜: 2, 매력: 2, 체력: 10 }, money: 50, inventory: ['낡은 검', '빵 2개'],
+    },
+    startLocation: 'guild',
+    places: [
+      { id: 'guild', name: '모험가 길드', description: '의뢰 게시판과 시끄러운 모험가들.' },
+      { id: 'inn', name: '은빛 여관', description: '따뜻한 스튜와 소문이 모이는 곳.' },
+      { id: 'smithy', name: '대장간', description: '망치 소리가 끊이지 않는다.' },
+      { id: 'manor', name: '영주 저택', description: '높은 담장과 경비병.' },
+      { id: 'forest', name: '검은 숲', description: '마물이 출몰하는 마을 외곽의 숲.' },
+    ],
+    npcs: [
+      { id: 'mira', name: '미라', age: 27, role: '길드 접수원', personality: '꼼꼼하고 잔소리가 많지만 다정함', description: '안경을 쓴 접수원.',
+        schedule: sch('inn guild guild inn guild inn inn'), relationship: { affection: 10, trust: 10, love: 0 } },
+      { id: 'borg', name: '보르그', age: 45, role: '대장장이', personality: '무뚝뚝하지만 의리 있음', description: '팔뚝이 굵은 드워프 혼혈.',
+        schedule: sch('smithy smithy smithy inn smithy inn smithy'), relationship: { affection: 0, trust: 0, love: 0 } },
+      { id: 'elena', name: '엘레나', age: 24, role: '영주의 딸', personality: '호기심 많고 반항적', description: '몰래 저택을 빠져나오곤 한다.',
+        schedule: sch('manor manor manor manor forest inn manor'), relationship: { affection: 0, trust: 0, love: 0 } },
+    ],
+    // NPC끼리의 첫 관계 [누가, 누구를, 호감, 신뢰, 애정]
+    npcRelations: rels([['mira', 'borg', 20, 30], ['borg', 'mira', 15, 30], ['mira', 'elena', 10, 5], ['elena', 'mira', 25, 20], ['borg', 'elena', -5, -10], ['elena', 'borg', 10, 0]]),
+    factions: [
+      { id: 'guild', name: '모험가 길드', description: '마을의 치안을 맡은 모험가들.', standing: 10 },
+      { id: 'lord', name: '영주 가문', description: '세금을 올리려는 영주.', standing: 0 },
+    ],
+  },
+  {
+    id: 'campus',
+    emoji: '🎓',
+    name: '현대 대학 캠퍼스',
+    summary: '2학년 1학기에 편입한 대학생. 동아리, 과제, 그리고 학기 말 축제.',
+    tone: '청춘, 일상, 로맨스, 코미디',
+    modules: { economy: false, stats: true },
+    currency: '원',
+    time: { startDay: 1, startHour: 9, defaultMinutes: 60, minMinutes: 10, maxMinutes: 240 },
+    goal: { title: '축제 무대 성공시키기', description: '30일 뒤 축제에서 동아리 공연을 성공시킨다.', days: 30 },
+    endings: baseEndings,
+    protagonist: {
+      role: '편입생', background: '지방에서 올라와 자취를 시작했다.',
+      name: '서준', personality: '낯을 가리지만 한번 친해지면 장난이 많음', appearance: '검은 머리, 후드티',
+      stats: { 학업: 3, 인기: 1, 체력: 5 }, money: 0, inventory: [],
+    },
+    startLocation: 'lecture',
+    places: [
+      { id: 'lecture', name: '인문관 강의실', description: '졸음을 부르는 오전 강의.' },
+      { id: 'club', name: '밴드 동아리방', description: '낡은 앰프와 포스터가 가득하다.' },
+      { id: 'cafe', name: '정문 앞 카페', description: '과제하는 학생들로 붐빈다.' },
+      { id: 'dorm', name: '자취방', description: '좁지만 내 공간.' },
+    ],
+    npcs: [
+      { id: 'yuna', name: '유나', age: 21, role: '밴드 보컬', personality: '밝고 직설적', description: '동아리 회장.',
+        schedule: sch('dorm cafe lecture cafe club club cafe'), relationship: { affection: 5, trust: 5, love: 0 } },
+      { id: 'minho', name: '민호', age: 22, role: '과 동기', personality: '느긋하고 눈치 빠름', description: '족보를 다 가진 선배 같은 동기.',
+        schedule: sch('dorm dorm lecture cafe cafe cafe dorm'), relationship: { affection: 10, trust: 5, love: 0 } },
+      { id: 'prof', name: '한 교수', age: 52, role: '지도교수', personality: '엄격하지만 공정함', description: '출석에 까다롭다.',
+        schedule: sch('lecture lecture lecture cafe lecture lecture lecture'), relationship: { affection: 0, trust: 0, love: 0 } },
+    ],
+    // NPC끼리의 첫 관계 [누가, 누구를, 호감, 신뢰, 애정]
+    npcRelations: rels([['yuna', 'minho', 15, 10], ['minho', 'yuna', 20, 15, 10], ['prof', 'minho', -10, -5], ['minho', 'prof', -5, 10], ['yuna', 'prof', 0, 5], ['prof', 'yuna', 10, 10]]),
+    factions: [
+      { id: 'band', name: '밴드 동아리', description: '해체 위기의 동아리.', standing: 5 },
+      { id: 'council', name: '학생회', description: '축제 무대 배정을 쥐고 있다.', standing: 0 },
+    ],
+  },
+  {
+    id: 'station',
+    emoji: '🚀',
+    name: 'SF 우주 정거장 아르고스',
+    summary: '외곽 정거장에 새로 배치된 엔지니어. 세력 갈등 속에 정체불명의 신호가 잡힌다.',
+    tone: 'SF 미스터리, 긴장감, 세력 정치',
+    modules: { economy: true, stats: true },
+    currency: '크레딧',
+    time: { startDay: 1, startHour: 7, defaultMinutes: 60, minMinutes: 10, maxMinutes: 480 },
+    goal: { title: '신호의 정체 밝히기', description: '30일 안에 신호의 출처를 밝히고 정거장을 지킨다.', days: 30 },
+    endings: baseEndings,
+    protagonist: {
+      role: '정비 엔지니어', background: '본성 조선소에서 좌천되어 왔다.',
+      name: '카이', personality: '냉소적이지만 동료를 버리지 않음', appearance: '회색 작업복, 의수 왼팔',
+      stats: { 기술: 4, 전투: 2, 교섭: 2, 체력: 10 }, money: 200, inventory: ['멀티툴', '출입 카드(C등급)'],
+    },
+    startLocation: 'dock',
+    places: [
+      { id: 'dock', name: '도킹 베이', description: '화물선이 오가는 소음.' },
+      { id: 'bridge', name: '관제실', description: '출입 제한 구역.' },
+      { id: 'bar', name: '저중력 바', description: '정보와 밀수품이 오간다.' },
+      { id: 'lab', name: '통신 연구실', description: '신호를 분석 중인 장비들.' },
+    ],
+    npcs: [
+      { id: 'vega', name: '베가 사령관', age: 48, role: '정거장 사령관', personality: '냉정한 원칙주의자', description: '연방 소속.',
+        schedule: sch('bridge bridge bridge bar bridge bridge bar'), relationship: { affection: 0, trust: 0, love: 0 } },
+      { id: 'rin', name: '린', age: 29, role: '통신 연구원', personality: '수줍고 집요함', description: '신호를 처음 발견했다.',
+        schedule: sch('lab lab lab bar lab bar lab'), relationship: { affection: 5, trust: 0, love: 0 } },
+      { id: 'jax', name: '잭스', age: 35, role: '밀수업자', personality: '능글맞고 계산적', description: '뭐든 구해준다.',
+        schedule: sch('dock dock bar bar bar bar dock'), relationship: { affection: 0, trust: 0, love: 0 } },
+    ],
+    // NPC끼리의 첫 관계 [누가, 누구를, 호감, 신뢰, 애정]
+    npcRelations: rels([['vega', 'rin', 10, 20], ['rin', 'vega', 5, 15], ['vega', 'jax', -20, -30], ['jax', 'vega', -10, -20], ['rin', 'jax', 5, -10], ['jax', 'rin', 15, 5]]),
+    factions: [
+      { id: 'fed', name: '연방군', description: '정거장을 통제한다.', standing: 0 },
+      { id: 'union', name: '광부 조합', description: '파업을 준비 중.', standing: 0 },
+    ],
+  },
+  {
+    id: 'joseon',
+    emoji: '🏯',
+    name: '조선 궁중 사극',
+    summary: '궁에 갓 들어온 신입 궁인. 중전과 후궁 세력 사이의 음모에 휘말린다.',
+    tone: '궁중 암투, 예법, 은밀한 감정',
+    modules: { economy: true, stats: false },
+    currency: '냥',
+    time: { startDay: 1, startHour: 6, defaultMinutes: 60, minMinutes: 10, maxMinutes: 720 },
+    goal: { title: '살아남아 자리를 잡기', description: '30일 안에 음모의 전말을 밝히고 신임을 얻는다.', days: 30 },
+    endings: baseEndings,
+    protagonist: {
+      role: '신입 궁인', background: '몰락한 양반가의 딸로 생계를 위해 입궁했다.',
+      name: '연화', personality: '침착하고 영리함', appearance: '단정한 궁인 복장',
+      stats: {}, money: 5, inventory: ['어머니의 노리개'],
+    },
+    startLocation: 'quarters',
+    places: [
+      { id: 'quarters', name: '궁인 처소', description: '좁고 엄격한 공간.' },
+      { id: 'palace', name: '중궁전', description: '중전이 머무는 곳.' },
+      { id: 'garden', name: '후원', description: '은밀한 만남이 이뤄지는 정원.' },
+      { id: 'kitchen', name: '소주방', description: '궁의 소문이 모이는 부엌.' },
+    ],
+    npcs: [
+      { id: 'queen', name: '중전 윤씨', age: 30, role: '중전', personality: '온화해 보이나 속을 알 수 없음', description: '후사가 없어 불안하다.',
+        schedule: sch('palace palace palace palace garden garden palace'), relationship: { affection: 0, trust: 0, love: 0 } },
+      { id: 'sanggung', name: '최 상궁', age: 50, role: '제조상궁', personality: '엄격하고 노련함', description: '궁인들의 우두머리.',
+        schedule: sch('quarters quarters kitchen kitchen kitchen quarters quarters'), relationship: { affection: 0, trust: 5, love: 0 } },
+      { id: 'guard', name: '이 무관', age: 28, role: '내금위 무관', personality: '과묵하고 충직함', description: '후원 경비를 맡는다.',
+        schedule: sch('garden garden palace palace garden garden garden'), relationship: { affection: 0, trust: 0, love: 0 } },
+    ],
+    // NPC끼리의 첫 관계 [누가, 누구를, 호감, 신뢰, 애정]
+    npcRelations: rels([['queen', 'sanggung', 20, 30], ['sanggung', 'queen', 30, 40], ['guard', 'queen', 10, 40], ['queen', 'guard', 5, 20], ['sanggung', 'guard', 0, 10], ['guard', 'sanggung', 5, 10]]),
+    factions: [
+      { id: 'queen', name: '중전 세력', description: '정통성을 지키려 한다.', standing: 0 },
+      { id: 'consort', name: '희빈 세력', description: '권력을 넓히려 한다.', standing: 0 },
+    ],
+  },
+  {
+    id: 'apocalypse',
+    emoji: '🧟',
+    name: '아포칼립스 생존 캠프',
+    summary: '폐허가 된 도시의 생존자 캠프에 새로 합류했다. 식량은 줄고 감염자는 늘어난다.',
+    tone: '생존, 긴장, 신뢰와 배신',
+    modules: { economy: true, stats: true },
+    currency: '배급표',
+    time: { startDay: 1, startHour: 7, defaultMinutes: 120, minMinutes: 10, maxMinutes: 600 },
+    goal: { title: '겨울 나기', description: '30일 안에 캠프의 식량과 방어를 확보한다.', days: 30 },
+    endings: baseEndings,
+    protagonist: {
+      role: '신입 생존자', background: '혼자 버티다 캠프를 발견했다.',
+      name: '도윤', personality: '신중하고 말수가 적음', appearance: '낡은 군용 점퍼, 흉터',
+      stats: { 생존: 3, 전투: 2, 의술: 1, 체력: 8 }, money: 3, inventory: ['쇠파이프', '통조림 1개'],
+    },
+    startLocation: 'camp',
+    places: [
+      { id: 'camp', name: '캠프 광장', description: '천막과 모닥불.' },
+      { id: 'clinic', name: '임시 진료소', description: '약품이 거의 없다.' },
+      { id: 'wall', name: '방벽', description: '감시탑과 바리케이드.' },
+      { id: 'ruins', name: '폐허 시가지', description: '물자가 있지만 위험하다.' },
+    ],
+    npcs: [
+      { id: 'hana', name: '하나', age: 33, role: '캠프 리더', personality: '단호하고 책임감 강함', description: '전직 소방관.',
+        schedule: sch('wall camp wall camp wall camp wall'), relationship: { affection: 0, trust: 0, love: 0 } },
+      { id: 'doc', name: '박 선생', age: 61, role: '의사', personality: '지쳤지만 따뜻함', description: '유일한 의료인.',
+        schedule: sch('camp clinic clinic camp clinic clinic camp'), relationship: { affection: 5, trust: 0, love: 0 } },
+      { id: 'tae', name: '태식', age: 38, role: '수색대장', personality: '거칠고 의심 많음', description: '신입을 믿지 않는다.',
+        schedule: sch('camp ruins ruins ruins ruins camp camp'), relationship: { affection: -10, trust: -10, love: 0 } },
+    ],
+    // NPC끼리의 첫 관계 [누가, 누구를, 호감, 신뢰, 애정]
+    npcRelations: rels([['hana', 'doc', 25, 40], ['doc', 'hana', 20, 35], ['hana', 'tae', 10, 20], ['tae', 'hana', 15, 30, 15], ['doc', 'tae', -5, 0], ['tae', 'doc', 0, 10]]),
+    factions: [
+      { id: 'camp', name: '캠프 주민', description: '지친 생존자들.', standing: 0 },
+      { id: 'raiders', name: '약탈자 무리', description: '캠프를 노린다.', standing: -30 },
+    ],
+  },
+  {
+    id: 'cafe',
+    emoji: '🍵',
+    name: '힐링 카페: 바닷가 마을',
+    summary: '할머니에게 작은 카페를 물려받았다. 단골손님과 마을 주민들과의 느린 일상.',
+    tone: '힐링, 잔잔함, 소소한 로맨스',
+    modules: { economy: true, stats: true },
+    currency: '원',
+    time: { startDay: 1, startHour: 8, defaultMinutes: 60, minMinutes: 10, maxMinutes: 300 },
+    goal: { title: '카페 흑자 만들기', description: '30일 안에 카페를 흑자로 만들고 단골을 늘린다.', days: 30 },
+    endings: baseEndings,
+    protagonist: {
+      role: '카페 사장', background: '도시 회사를 그만두고 내려왔다.',
+      name: '하윤', personality: '다정하지만 걱정이 많음', appearance: '앞치마, 묶은 머리',
+      stats: { 요리: 2, 친화: 3, 체력: 10 }, money: 300000, inventory: ['할머니의 레시피 노트'],
+    },
+    startLocation: 'cafe',
+    places: [
+      { id: 'cafe', name: '카페 파도', description: '낡았지만 햇살이 좋은 카페.' },
+      { id: 'market', name: '어시장', description: '신선한 재료와 수다.' },
+      { id: 'beach', name: '해변 산책로', description: '노을이 예쁘다.' },
+      { id: 'library', name: '마을 도서관', description: '조용한 오후.' },
+    ],
+    npcs: [
+      { id: 'jiho', name: '지호', age: 31, role: '어부', personality: '무뚝뚝하지만 섬세함', description: '매일 아침 커피를 사러 온다.',
+        schedule: sch('market cafe market market market beach market'), relationship: { affection: 5, trust: 5, love: 0 } },
+      { id: 'sora', name: '소라', age: 26, role: '사서', personality: '조용하고 상상력 풍부', description: '소설을 쓰고 있다.',
+        schedule: sch('library library library cafe library cafe beach'), relationship: { affection: 0, trust: 0, love: 0 } },
+      { id: 'grandpa', name: '김 영감', age: 78, role: '이장', personality: '고집스럽지만 정 많음', description: '할머니의 오랜 친구.',
+        schedule: sch('market market market cafe cafe market library'), relationship: { affection: 10, trust: 10, love: 0 } },
+    ],
+    // NPC끼리의 첫 관계 [누가, 누구를, 호감, 신뢰, 애정]
+    npcRelations: rels([['jiho', 'sora', 10, 5, 15], ['sora', 'jiho', 10, 5], ['grandpa', 'jiho', 30, 30], ['jiho', 'grandpa', 25, 30], ['grandpa', 'sora', 20, 15], ['sora', 'grandpa', 15, 15]]),
+    factions: [
+      { id: 'village', name: '마을 주민회', description: '작은 마을의 여론.', standing: 10 },
+      { id: 'franchise', name: '프랜차이즈 카페', description: '마을 입구에 들어설 예정.', standing: 0 },
+    ],
+  },
+];
