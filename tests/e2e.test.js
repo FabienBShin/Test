@@ -8,7 +8,7 @@ import os from 'node:os';
 import { chromium } from 'playwright';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml' };
 let server, base, browser;
 
 test.before(async () => {
@@ -19,7 +19,9 @@ test.before(async () => {
   });
   await new Promise((r) => server.listen(0, r));
   base = `http://localhost:${server.address().port}/`;
-  browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? '/opt/pw-browsers/chromium' });
+  const local = process.env.CHROMIUM ?? '/opt/pw-browsers/chromium';
+  const exists = await fs.access(local).then(() => true, () => false);
+  browser = await chromium.launch(exists ? { executablePath: local } : {}); // CI에서는 Playwright가 설치한 브라우저
 });
 test.after(async () => { await browser?.close(); server?.close(); });
 
@@ -609,4 +611,53 @@ test('[결정6] 예전 4구간 일과로 만든 세계관 파일도 불러와서
   assert.match(await page.textContent('#tab-body'), /📍 모험가 길드/);
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+// ---------- 웹앱 (설치, 오프라인) ----------
+test('[웹앱] 설치 정보(manifest)와 아이콘이 올바르다', async () => {
+  const { page, ctx } = await open();
+  const href = await page.getAttribute('link[rel=manifest]', 'href');
+  const manifest = await (await page.request.get(new URL(href, base).href)).json();
+  assert.equal(manifest.display, 'standalone');
+  assert.equal(manifest.start_url, './');
+  for (const size of ['192x192', '512x512']) {
+    const icon = manifest.icons.find((i) => i.sizes === size);
+    const res = await page.request.get(new URL(icon.src, base).href);
+    assert.equal(res.status(), 200, size);
+    assert.equal(res.headers()['content-type'], 'image/png');
+  }
+  assert.equal((await page.request.get(new URL(await page.getAttribute('link[rel=apple-touch-icon]', 'href'), base).href)).status(), 200);
+  await ctx.close();
+});
+
+test('[웹앱] 서비스 워커가 설치되고, 인터넷이 끊겨도 앱이 열리며 테스트 모드로 플레이할 수 있다', async () => {
+  const { page, ctx, errors } = await open();
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload(); // 서비스 워커가 페이지를 맡은 상태로 다시 연다
+  await page.waitForFunction(() => navigator.serviceWorker.controller);
+  await ctx.setOffline(true);
+  await page.reload();
+  await startPreset(page, 0);
+  await say(page, '오프라인에서 인사한다');
+  assert.match(await logText(page), /테스트 모드/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('[웹앱] 서비스 워커 캐시 목록의 파일이 모두 실제로 있다', async () => {
+  const sw = await fs.readFile(path.join(ROOT, 'sw.js'), 'utf8');
+  const files = JSON.parse(sw.match(/const SHELL = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"').replace(/,\s*\]/, ']'));
+  for (const f of files.filter((x) => x !== './')) await fs.access(path.join(ROOT, f));
+  const jsFiles = (await fs.readdir(path.join(ROOT, 'js'))).map((f) => `js/${f}`);
+  for (const f of jsFiles) assert.ok(files.includes(f), `${f}가 캐시 목록에 없다`);
+});
+
+test('[웹앱] 배포 워크플로가 복사하는 파일로 게임이 동작한다', async () => {
+  const wf = await fs.readFile(path.join(ROOT, '.github/workflows/pages.yml'), 'utf8');
+  const copied = wf.match(/cp -r (.+) _site\//)[1].split(/\s+/);
+  for (const need of ['index.html', 'manifest.webmanifest', 'sw.js', 'css', 'js', 'icons']) assert.ok(copied.includes(need), need);
+  const html = await fs.readFile(path.join(ROOT, 'index.html'), 'utf8');
+  for (const ref of html.matchAll(/(?:href|src)="([^"#:]+)"/g)) {
+    assert.ok(copied.some((c) => ref[1] === c || ref[1].startsWith(`${c}/`)), `${ref[1]}가 배포에서 빠진다`);
+  }
 });

@@ -402,3 +402,8 @@ $('#btn-editor-save').onclick = () => {
 };
 
 show('title');
+
+// 앱 설치와 오프라인 실행을 위한 서비스 워커
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
