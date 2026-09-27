@@ -26,7 +26,7 @@ test.after(async () => { await browser?.close(); server?.close(); });
 const ok = (obj) => ({ status: 200, contentType: 'application/json', body: JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(obj) }] } }] }) });
 
 // 새 페이지. gemini: (요청 본문, 모델) => route.fulfill 인자
-async function open({ width = 390, height = 800, gemini, settings } = {}) {
+async function open({ width = 390, height = 800, gemini, stats, settings } = {}) {
   const ctx = await browser.newContext({ viewport: { width, height }, acceptDownloads: true });
   const page = await ctx.newPage();
   const errors = [];
@@ -37,7 +37,10 @@ async function open({ width = 390, height = 800, gemini, settings } = {}) {
     const req = route.request();
     const model = decodeURIComponent(req.url().match(/models\/([^:]+):/)[1]);
     const body = JSON.parse(req.postData());
-    const res = gemini ? await gemini(body, model) : ok({ narration: '기본 응답', choices: [] });
+    // 게임 시작 때의 능력치 결정 요청은 따로 처리한다 (stats 옵션이 없으면 AI가 기준값을 그대로 돌려준 것으로 본다)
+    const isStats = body.systemInstruction.parts[0].text.includes('캐릭터 설계자');
+    const res = isStats ? (stats ? await stats(body, model) : ok({ stats: {} }))
+      : gemini ? await gemini(body, model) : ok({ narration: '기본 응답', choices: [] });
     if (res === 'network') return route.abort();
     return route.fulfill(res);
   });
@@ -169,21 +172,22 @@ test('[기준7] 하루가 끝나면 NPC 사이 소식이 나오고 세력, 플�
     settings: KEY,
     gemini: (body) => (body.systemInstruction.parts[0].text.includes('세계 시뮬레이터')
       ? ok({ news: ['보르그와 미라가 크게 다퉜다'], npcRelationChanges: [{ from: 'borg', to: 'mira', affection: -8, trust: -3 }], factionChanges: { lord: -15 }, flags: { 세금인상: '발표됨' } })
-      : ok({ narration: '...' })),
+      : ok({ narration: '...', statChanges: { 체력: -6 } })),
   });
   await startPreset(page, 0);
+  await say(page, '힘든 일을 한다');
   await page.click('[data-skip=sleep]');
   await page.waitForFunction(() => !document.querySelector('#action-input').disabled);
   const log = await logText(page);
   assert.match(log, /📰 보르그와 미라가 크게 다퉜다/);
-  assert.match(log, /체력이\(가\) 회복/);
+  assert.match(log, /체력이\(가\) 6 회복되었다. \(10\/10\)/);
   assert.match(await page.textContent('#g-time'), /2일차 08:00 \(아침\)/);
   await page.click('[data-tab=world]');
   const w = await page.textContent('#tab-body');
   assert.match(w, /영주 가문 -15/);
   assert.match(w, /세금인상: 발표됨/);
   await page.click('[data-tab=people]');
-  assert.match(await page.textContent('#tab-body'), /→ 미라: 호감-8 신뢰-3/);
+  assert.match(await page.textContent('#tab-body'), /보르그.*→ 미라: 호감7 신뢰27/s);
   await ctx.close();
 });
 
@@ -239,6 +243,7 @@ test('[기준10] 한 줄 설명으로 AI가 세계관을 만들고, 에디터에
   assert.match(await page.textContent('#world-list'), /스팀펑크 탐정 \(수정됨\)/);
   await page.locator('#world-list .card').first().getByText('플레이').click();
   await page.click('text=게임 시작');
+  await page.waitForSelector('#screen-game:not([hidden])'); // 키가 있으면 AI 능력치 결정을 기다린다
   assert.match(await page.textContent('#g-world'), /수정됨/);
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -315,6 +320,7 @@ test('[기준12] 성인 확인을 거절하면 성인 모드가 켜지지 않는
   await page.click('#settings-form [name=adultMode]');
   assert.equal(await page.isChecked('#settings-form [name=adultMode]'), true);
   await page.click('#settings-form button[value=ok]');
+  await page.waitForFunction(() => localStorage.getItem('rp.settings')); // 창 닫힘 이벤트는 조금 뒤에 온다
   assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('rp.settings'))).adultMode, true);
   await ctx.close();
 });
@@ -423,8 +429,7 @@ test('[예외] 잘못된 세이브 파일과 세계관 파일은 안내만 하�
   for (const content of ['이건 JSON이 아님', '{}', '[]', 'null', JSON.stringify({ id: 'w' })]) {
     await fs.writeFile(bad, content);
     await page.setInputFiles('#file-import-save', bad);
-    await page.waitForSelector('#toast:not([hidden])');
-    assert.match(await page.textContent('#toast'), /읽지 못했습니다/);
+    await page.waitForFunction(() => /읽지 못했습니다/.test(document.querySelector('#toast').textContent)); // 앞 안내가 남아 있을 수 있다
     await page.setInputFiles('#file-import-world', bad);
     await page.waitForFunction(() => /세계관 파일 오류/.test(document.querySelector('#toast').textContent));
     assert.ok(await page.isVisible('#screen-title'));
@@ -538,5 +543,70 @@ test('[예외] 한도 초과 뒤 API 키를 바꾸면 바로 다시 시도할 �
   await page.click('#action-form button');
   await page.waitForFunction(() => !document.querySelector('#action-input').disabled);
   assert.match(await logText(page), /새 키로 응답/);
+  await ctx.close();
+});
+
+// ---------- 결정 사항 반영 ----------
+test('[결정1] API 키가 있으면 게임 시작 때 AI가 능력치를 정하고, 실패하면 기본값으로 시작한다', async () => {
+  let fail = false;
+  const { page, ctx } = await open({ settings: KEY, stats: () => (fail ? { status: 500, body: '{}' } : ok({ stats: { 힘: 8, 지혜: 1, 매력: 2, 체력: 12 }, reason: '싸움꾼 기질' })) });
+  await startPreset(page, 0, { personality: '싸움을 좋아함' });
+  assert.match(await logText(page), /AI가 정한 능력치: 힘 8, 지혜 1, 매력 2, 체력 12/);
+  await page.click('[data-tab=me]');
+  assert.match(await page.textContent('#tab-body'), /힘8/);
+  fail = true;
+  await page.goto(base);
+  await startPreset(page, 0);
+  assert.match(await logText(page), /기본값으로 시작/);
+  await ctx.close();
+});
+
+test('[결정1] 테스트 모드와 능력치 없는 세계관은 능력치 결정 요청을 보내지 않는다', async () => {
+  const { page, ctx, requests } = await open({ settings: KEY });
+  await startPreset(page, 3); // 사극: 능력치 없음
+  const { page: p2, ctx: c2, requests: r2 } = await open();
+  await startPreset(p2, 0);
+  assert.equal(requests.filter((r) => r.url.includes('generativelanguage')).length, 0);
+  assert.equal(r2.filter((r) => r.url.includes('generativelanguage')).length, 0);
+  await ctx.close(); await c2.close();
+});
+
+test('[결정4] 직접 잔다고 입력하면 AI 휴식 판단으로 회복하고, 짧게 쉬면 적게 회복한다', async () => {
+  const { page, ctx } = await open({ settings: KEY, gemini: (b) => {
+    const action = b.contents[0].parts[0].text.split('플레이어 행동: ').pop();
+    if (action.includes('훈련')) return ok({ narration: '지쳤다', statChanges: { 체력: -5 } });
+    if (action.includes('잔다')) return ok({ narration: '푹 잤다', resting: true, minutes: 480 });
+    return ok({ narration: '...' });
+  } });
+  await startPreset(page, 1); // 대학: 행동 최대 240분, 체력 5
+  await say(page, '훈련한다');
+  const t0 = await page.textContent('#g-time');
+  await say(page, '방에 가서 잔다');
+  assert.match(await logText(page), /체력이\(가\) 5 회복되었다. \(5\/5\)/);
+  assert.match(t0, /1일차 10:00/);
+  assert.match(await page.textContent('#g-time'), /1일차 18:00/, '휴식 8시간은 행동 최대치(4시간)에 막히지 않는다');
+  await say(page, '훈련한다');
+  await page.click('[data-skip="60"]');
+  await page.waitForFunction(() => !document.querySelector('#action-input').disabled);
+  assert.match(await logText(page), /체력이\(가\) 1 회복되었다. \(1\/5\)/);
+  await ctx.close();
+});
+
+test('[결정6] 예전 4구간 일과로 만든 세계관 파일도 불러와서 플레이할 수 있다', async () => {
+  const { PRESETS } = await import('../js/presets.js');
+  const w = structuredClone(PRESETS[0]);
+  w.id = 'legacy';
+  for (const n of w.npcs) n.schedule = { morning: 'guild', day: 'smithy', evening: 'inn', night: 'manor' };
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'rp-'));
+  const file = path.join(dir, 'w.json');
+  await fs.writeFile(file, JSON.stringify(w));
+  const { page, ctx, errors } = await open();
+  await page.setInputFiles('#file-import-world', file);
+  await page.waitForFunction(() => document.querySelectorAll('#world-list .card').length === 1);
+  await page.locator('#world-list .card').first().getByText('플레이').click();
+  await page.click('text=게임 시작');
+  await page.click('[data-tab=people]');
+  assert.match(await page.textContent('#tab-body'), /📍 모험가 길드/);
+  assert.deepEqual(errors, []);
   await ctx.close();
 });

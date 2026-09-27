@@ -1,5 +1,5 @@
 // AI 게임 마스터. 제공자(provider)를 분리해 두어 나중에 다른 AI를 추가할 수 있다.
-import { slotOf, periodOf, timeLabel, placeName, npcsHere, STAMINA } from './state.js';
+import { npcPlace, timeLabel, placeName, npcsHere, STAMINA, PERIODS } from './state.js';
 
 // ---------- 모델 ----------
 
@@ -48,7 +48,8 @@ const RELATIONSHIP_RULE = `관계 수치(-100~100) 변화 규칙: 실제 사람�
 - 신뢰: 약속을 지키고 말과 행동이 일치할 때 천천히(1~3) 쌓이고, 거짓말과 배신에는 크게(-10~-20) 무너진다.
 - 애정: 호감과 신뢰가 충분히 쌓인 뒤에야 조금씩 오른다. 첫 만남에서 급격히 오르지 않는다.
 - 성격에 따라 반응이 다르다(예: 의심 많은 인물은 신뢰가 더 느리게 쌓인다). 같은 행동을 반복하면 효과가 줄어든다.
-- 목숨을 구하거나 배신하는 등 큰 사건만 한 번에 최대 ±20까지 바뀐다.
+- 중요한 사건(위기에서 도와줌, 큰 거짓말이 들킴)은 10~20.
+- 목숨을 구하거나 배신하는 등 관계를 뒤흔드는 결정적 사건은 한 번에 최대 ±50까지 바뀐다.
 - NPC끼리의 관계도 같은 규칙으로 바뀐다(npcRelationChanges).`;
 
 const STATS_RULE = `능력치 반영 규칙: 플레이어 능력치가 이야기와 대화의 결과와 디테일을 바꾼다.
@@ -83,7 +84,6 @@ function npcRelationBrief(g) {
 
 export function worldBrief(g, focusText) {
   const w = g.world;
-  const slot = slotOf(g.time.minute);
   const focus = focusNpcIds(g, focusText);
   const npcs = w.npcs.map((n) => {
     const s = g.npcs[n.id];
@@ -91,7 +91,7 @@ export function worldBrief(g, focusText) {
     const mem = focus.has(n.id)
       ? [s.memorySummary && `요약: ${s.memorySummary}`, recent.length && `최근: ${recent.join(' / ')}`].filter(Boolean).join(' | ')
       : [s.memorySummary, recent.slice(-2).join(' / ')].filter(Boolean).join(' | ');
-    return `- ${n.id} | ${n.name}(${n.age}세, ${n.role}) 성격:${n.personality}. 현재 위치:${placeName(g, n.schedule[slot])}. 플레이어에 대한 호감${s.affection} 신뢰${s.trust} 애정${s.love}. 플레이어와의 기억: ${mem || '없음'}`;
+    return `- ${n.id} | ${n.name}(${n.age}세, ${n.role}) 성격:${n.personality}. 현재 위치:${placeName(g, npcPlace(n, g.time.minute))}. 플레이어에 대한 호감${s.affection} 신뢰${s.trust} 애정${s.love}. 플레이어와의 기억: ${mem || '없음'}`;
   }).join('\n');
   const overdue = g.time.day > w.goal.days;
   return [
@@ -124,7 +124,8 @@ function turnSchema(g) {
   return `다음 JSON 형식으로만 답한다:
 {
  "narration": "상황 묘사와 NPC 대사 (한국어)",
- "minutes": 이 행동에 걸린 시간(분, ${t.minMinutes}~${t.maxMinutes}, 보통 ${t.defaultMinutes}),
+ "minutes": 이 행동에 걸린 시간(분, ${t.minMinutes}~${t.maxMinutes}, 보통 ${t.defaultMinutes}. 잠이나 휴식은 실제로 쉰 시간, 최대 960),
+ "resting": 이 행동이 잠이나 휴식이면 true (${STAMINA} 회복), 아니면 생략,
  "location": "이동했다면 장소 id, 아니면 생략",
  "relationshipChanges": [{"npc":"npc id","affection":0,"trust":0,"love":0,"memory":"이 NPC가 기억할 이번 상호작용 한 줄(구체적으로)"}],
  "npcRelationChanges": [{"from":"npc id","to":"npc id","affection":0,"trust":0,"love":0}],
@@ -209,6 +210,27 @@ export async function summarize(g, settings) {
   return true;
 }
 
+// ---------- 시작 능력치 ----------
+
+// 게임 시작 때 주인공의 성격·외모·배경을 보고 능력치 값을 정한다. 능력치 종류는 세계관 것을 그대로 쓴다.
+export async function decideStats(world, player, settings) {
+  const base = world.protagonist.stats;
+  const system = [
+    '너는 RP 게임의 캐릭터 설계자다. 주인공의 성격, 외모, 배경에 맞게 능력치 값을 정한다.',
+    `능력치 종류는 바꾸지 않는다: ${Object.keys(base).join(', ')}. 기준값: ${JSON.stringify(base)}.`,
+    '성격에서 드러나는 강점은 기준보다 높게, 약점은 낮게 정하되 전체 합은 기준 합과 비슷하게 한다. 모든 값은 1 이상의 정수.',
+    '다음 JSON으로만 답한다: {"stats":{"능력치 이름":값},"reason":"이렇게 정한 이유 한 줄"}',
+  ].join('\n');
+  const user = `세계관: ${world.name} — ${world.summary}\n역할: ${world.protagonist.role}\n배경: ${world.protagonist.background}\n이름: ${player.name}\n성격: ${player.personality}\n외모: ${player.appearance}`;
+  const r = await callGemini(settings, 'story', system, user);
+  const stats = {};
+  for (const [k, v] of Object.entries(base)) {
+    const n = Math.round(Number(r?.stats?.[k]));
+    stats[k] = Number.isFinite(n) ? Math.max(1, Math.min(n, Math.max(10, v * 3))) : v;
+  }
+  return { stats, reason: typeof r?.reason === 'string' ? r.reason : '' };
+}
+
 // ---------- 세계관 생성 ----------
 
 export async function generateWorld(prompt, settings) {
@@ -218,6 +240,7 @@ export async function generateWorld(prompt, settings) {
     'NPC는 모두 성인(18세 이상)으로 만든다. 장소 4~6개, NPC 3~5명, 세력 2~3개.',
     `능력치 모듈을 켜면 주인공 능력치 3~5개를 세계관에 맞게 정하고, 그중 하나는 반드시 "${STAMINA}"로 한다.`,
     'goal.days는 목표의 기준 기간이다. 시간 흐름 단위(time)는 세계관의 활동 단위에 맞게 정한다.',
+    `NPC 일과(schedule)는 시간대 ${PERIODS.map((p) => `${p.key}=${p.label}(${p.from}시~)`).join(', ')}마다 있을 장소 id다.`,
     'npcRelations에는 NPC끼리의 초기 관계를 넣는다: {"npc id":{"다른 npc id":{"affection":0,"trust":0,"love":0}}}',
     '형식은 아래 예시와 같은 키를 그대로 사용한다. id는 영문 소문자.',
     JSON.stringify(EXAMPLE_SHAPE),
@@ -235,7 +258,7 @@ const EXAMPLE_SHAPE = {
   startLocation: 'place-id',
   places: [{ id: 'place-id', name: '', description: '' }],
   npcs: [{ id: 'npc-id', name: '', age: 25, role: '', personality: '', description: '',
-    schedule: { morning: 'place-id', day: 'place-id', evening: 'place-id', night: 'place-id' },
+    schedule: Object.fromEntries(PERIODS.map((p) => [p.key, 'place-id'])),
     relationship: { affection: 0, trust: 0, love: 0 } }],
   npcRelations: {},
   factions: [{ id: 'faction-id', name: '', description: '', standing: 0 }],
@@ -321,11 +344,13 @@ function mockTurn(g, actionText) {
   const lines = npc
     ? [`${npc.name}이(가) ${g.player.name}을(를) 바라본다. "${pick(['그래서, 무슨 일이야?', '오늘은 좀 한가하네.', '흠, 생각해 볼게.'])}"`]
     : [`${placeName(g, g.location)}에는 아무도 없다. 조용한 공기만 흐른다.`];
+  const resting = /잠|잔다|자기|쉰다|쉬기|쉬어|휴식/.test(actionText);
   const delta = pick([0, 1, 2]);
   const reached = !g.ending && g.goalProgress + delta >= 100;
   return {
     narration: `(테스트 모드) ${g.player.name}은(는) "${actionText}" 행동을 했다. ${lines.join(' ')}`,
-    minutes: g.world.time.defaultMinutes,
+    minutes: resting ? 120 : g.world.time.defaultMinutes,
+    resting: resting || undefined,
     relationshipChanges: npc ? [{ npc: npc.id, affection: pick([1, 2, 3]), trust: pick([0, 1]), love: 0, memory: `${g.player.name}이(가) "${actionText}"라고 했다` }] : [],
     goalProgressDelta: delta,
     ending: reached ? { id: 'good' } : undefined,
@@ -342,7 +367,7 @@ function mockDaily(g) {
   if (!a) return { news: ['(테스트 모드) 조용한 하루가 지나갔다.'], factionChanges: {} };
   const kind = pick([['크게 다퉜다는', -5], ['함께 술을 마셨다는', 4], ['비밀 이야기를 나눴다는', 3]]);
   return {
-    news: [`(테스트 모드) ${periodOf(0)}에 ${a.name}와(과) ${b?.name ?? '누군가'}가 ${kind[0]} 소문이 돈다.`],
+    news: [`(테스트 모드) 밤사이 ${a.name}와(과) ${b?.name ?? '누군가'}가 ${kind[0]} 소문이 돈다.`],
     npcRelationChanges: b ? [{ from: a.id, to: b.id, affection: kind[1], trust: Math.sign(kind[1]) }, { from: b.id, to: a.id, affection: kind[1], trust: Math.sign(kind[1]) }] : [],
     factionChanges: {},
   };

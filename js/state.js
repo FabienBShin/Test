@@ -1,29 +1,35 @@
 // 게임 상태: 생성, 시간 흐름, AI 결과 반영, 수면, 엔딩.
 
-// NPC 일과 구간 (세계관 데이터의 schedule 키)
-export const SLOTS = { morning: '아침', day: '낮', evening: '저녁', night: '밤' };
-export const MAX_REL_STEP = 20; // 한 번의 상호작용으로 바뀔 수 있는 관계 수치의 최대폭
+// 사회적 통념에 따른 시간대. NPC 일과(schedule)도 이 7구간을 키로 쓴다.
+export const PERIODS = [
+  { key: 'dawn', label: '새벽', from: 0 },
+  { key: 'morning', label: '아침', from: 6 },
+  { key: 'forenoon', label: '오전', from: 9 },
+  { key: 'lunch', label: '점심', from: 12 },
+  { key: 'afternoon', label: '오후', from: 13 },
+  { key: 'evening', label: '저녁', from: 18 },
+  { key: 'night', label: '밤', from: 21 },
+];
+// 예전 4구간 일과(morning/day/evening/night)로 만든 세계관을 위한 대응표
+const LEGACY_SLOT = { dawn: 'night', morning: 'morning', forenoon: 'morning', lunch: 'day', afternoon: 'day', evening: 'evening', night: 'night' };
+export const LEGACY_SLOTS = ['morning', 'day', 'evening', 'night'];
+
+export const MAX_REL_STEP = 50; // 한 번에 바뀔 수 있는 관계 수치의 최대폭 (목숨을 구하거나 배신하는 등 결정적 사건)
 export const STAMINA = '체력';
 const FULL_SLEEP_MINUTES = 6 * 60;
+const MAX_REST_MINUTES = 16 * 60;
 
-export function slotOf(minute) {
+function period(minute) {
   const h = Math.floor(minute / 60) % 24;
-  if (h >= 6 && h < 12) return 'morning';
-  if (h >= 12 && h < 18) return 'day';
-  if (h >= 18 && h < 21) return 'evening';
-  return 'night';
+  return PERIODS.findLast((p) => h >= p.from);
 }
+export const periodKey = (minute) => period(minute).key;
+export const periodOf = (minute) => period(minute).label;
 
-// 사회적 통념에 따른 시간대 이름 (화면 표시와 AI 설명용)
-export function periodOf(minute) {
-  const h = Math.floor(minute / 60) % 24;
-  if (h < 6) return '새벽';
-  if (h < 9) return '아침';
-  if (h < 12) return '오전';
-  if (h < 13) return '점심';
-  if (h < 18) return '오후';
-  if (h < 21) return '저녁';
-  return '밤';
+// 지금 시각에 NPC가 있는 장소
+export function npcPlace(npc, minute) {
+  const k = periodKey(minute);
+  return npc.schedule?.[k] ?? npc.schedule?.[LEGACY_SLOT[k]];
 }
 
 export function timeLabel(time) {
@@ -37,6 +43,7 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const relKeys = ['affection', 'trust', 'love'];
 
+// custom.stats: 게임 시작 때 AI가 정한 능력치 (없으면 세계관 기본값)
 export function newGame(world, custom) {
   const w = clone(world);
   const p = w.protagonist;
@@ -56,8 +63,8 @@ export function newGame(world, custom) {
       appearance: custom.appearance || p.appearance,
       role: p.role,
       background: p.background,
-      stats: w.modules.stats ? { ...p.stats } : {},
-      statMax: w.modules.stats ? { ...p.stats } : {},
+      stats: w.modules.stats ? { ...(custom.stats ?? p.stats) } : {},
+      statMax: w.modules.stats ? { ...(custom.stats ?? p.stats) } : {},
       money: w.modules.economy ? p.money : 0,
       inventory: w.modules.economy ? [...p.inventory] : [],
     },
@@ -81,8 +88,7 @@ export const placeName = (g, id) => g.world.places.find((p) => p.id === id)?.nam
 export const npcById = (g, id) => g.world.npcs.find((n) => n.id === id);
 
 export function npcsHere(g) {
-  const slot = slotOf(g.time.minute);
-  return g.world.npcs.filter((n) => n.schedule[slot] === g.location);
+  return g.world.npcs.filter((n) => npcPlace(n, g.time.minute) === g.location);
 }
 
 // AI가 정한 경과 시간을 세계관 범위로 제한해 적용한다. 지나간 날 수를 돌려준다.
@@ -97,15 +103,21 @@ export function advanceTime(g, minutes, { clampToWorld = true } = {}) {
   return days;
 }
 
-// 수면: 6시간 이상 자면 체력 완전 회복, 그보다 짧으면 잔 시간에 비례해 회복.
-export function sleep(g, minutes) {
-  const days = advanceTime(g, minutes, { clampToWorld: false });
+// 수면·휴식: 6시간 이상이면 체력 완전 회복, 짧으면 쉰 시간에 비례해 조금만 회복.
+// 세계관의 행동 시간 범위와 관계없이 쉴 수 있다(AI 판단은 최대 16시간, 버튼은 제한 없음). 회복량을 돌려준다.
+export function rest(g, minutes, { cap = true } = {}) {
+  let m = Number(minutes);
+  if (!Number.isFinite(m) || m <= 0) m = g.world.time.defaultMinutes;
+  if (cap) m = Math.min(m, MAX_REST_MINUTES);
+  const days = advanceTime(g, m, { clampToWorld: false });
   const max = g.player.statMax?.[STAMINA];
+  let gained = 0;
   if (STAMINA in g.player.stats && max != null) {
-    const gain = Math.ceil(max * Math.min(1, minutes / FULL_SLEEP_MINUTES));
-    g.player.stats[STAMINA] = Math.min(max, g.player.stats[STAMINA] + gain);
+    const before = g.player.stats[STAMINA];
+    g.player.stats[STAMINA] = Math.min(max, before + Math.ceil(max * Math.min(1, m / FULL_SLEEP_MINUTES)));
+    gained = g.player.stats[STAMINA] - before;
   }
-  return days;
+  return { days, gained };
 }
 
 function applyRel(target, change) {

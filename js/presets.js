@@ -1,5 +1,15 @@
 // 기본 프리셋 세계관 6종.
-// 숫자(능력치, 돈, 관계 초기값, 시간 범위, 목표 기간)는 모두 임시값이다. docs/OPEN_QUESTIONS.md 참고.
+// 능력치 값은 기준값이다. API 키가 있으면 게임 시작 때 AI가 주인공 성격에 맞게 다시 정한다.
+
+// 일과: 새벽 아침 오전 점심 오후 저녁 밤 순서로 장소 id를 적는다.
+const PERIOD_KEYS = ['dawn', 'morning', 'forenoon', 'lunch', 'afternoon', 'evening', 'night'];
+const sch = (s) => Object.fromEntries(s.split(' ').map((place, i) => [PERIOD_KEYS[i], place]));
+// NPC끼리의 관계는 방향이 있다(A가 B를 어떻게 보는지).
+const rels = (list) => {
+  const o = {};
+  for (const [a, b, affection, trust, love = 0] of list) (o[a] ??= {})[b] = { affection, trust, love };
+  return o;
+};
 
 const baseEndings = [
   { id: 'good', title: '좋은 결말', description: '목표를 이뤄냈다.' },
@@ -34,12 +44,14 @@ export const PRESETS = [
     ],
     npcs: [
       { id: 'mira', name: '미라', age: 27, role: '길드 접수원', personality: '꼼꼼하고 잔소리가 많지만 다정함', description: '안경을 쓴 접수원.',
-        schedule: { morning: 'guild', day: 'guild', evening: 'inn', night: 'inn' }, relationship: { affection: 10, trust: 10, love: 0 } },
+        schedule: sch('inn guild guild inn guild inn inn'), relationship: { affection: 10, trust: 10, love: 0 } },
       { id: 'borg', name: '보르그', age: 45, role: '대장장이', personality: '무뚝뚝하지만 의리 있음', description: '팔뚝이 굵은 드워프 혼혈.',
-        schedule: { morning: 'smithy', day: 'smithy', evening: 'inn', night: 'smithy' }, relationship: { affection: 0, trust: 0, love: 0 } },
+        schedule: sch('smithy smithy smithy inn smithy inn smithy'), relationship: { affection: 0, trust: 0, love: 0 } },
       { id: 'elena', name: '엘레나', age: 24, role: '영주의 딸', personality: '호기심 많고 반항적', description: '몰래 저택을 빠져나오곤 한다.',
-        schedule: { morning: 'manor', day: 'manor', evening: 'inn', night: 'manor' }, relationship: { affection: 0, trust: 0, love: 0 } },
+        schedule: sch('manor manor manor manor forest inn manor'), relationship: { affection: 0, trust: 0, love: 0 } },
     ],
+    // NPC끼리의 첫 관계 [누가, 누구를, 호감, 신뢰, 애정]
+    npcRelations: rels([['mira', 'borg', 20, 30], ['borg', 'mira', 15, 30], ['mira', 'elena', 10, 5], ['elena', 'mira', 25, 20], ['borg', 'elena', -5, -10], ['elena', 'borg', 10, 0]]),
     factions: [
       { id: 'guild', name: '모험가 길드', description: '마을의 치안을 맡은 모험가들.', standing: 10 },
       { id: 'lord', name: '영주 가문', description: '세금을 올리려는 영주.', standing: 0 },
@@ -70,12 +82,14 @@ export const PRESETS = [
     ],
     npcs: [
       { id: 'yuna', name: '유나', age: 21, role: '밴드 보컬', personality: '밝고 직설적', description: '동아리 회장.',
-        schedule: { morning: 'lecture', day: 'club', evening: 'club', night: 'cafe' }, relationship: { affection: 5, trust: 5, love: 0 } },
+        schedule: sch('dorm cafe lecture cafe club club cafe'), relationship: { affection: 5, trust: 5, love: 0 } },
       { id: 'minho', name: '민호', age: 22, role: '과 동기', personality: '느긋하고 눈치 빠름', description: '족보를 다 가진 선배 같은 동기.',
-        schedule: { morning: 'lecture', day: 'cafe', evening: 'cafe', night: 'dorm' }, relationship: { affection: 10, trust: 5, love: 0 } },
+        schedule: sch('dorm dorm lecture cafe cafe cafe dorm'), relationship: { affection: 10, trust: 5, love: 0 } },
       { id: 'prof', name: '한 교수', age: 52, role: '지도교수', personality: '엄격하지만 공정함', description: '출석에 까다롭다.',
-        schedule: { morning: 'lecture', day: 'lecture', evening: 'lecture', night: 'lecture' }, relationship: { affection: 0, trust: 0, love: 0 } },
+        schedule: sch('lecture lecture lecture cafe lecture lecture lecture'), relationship: { affection: 0, trust: 0, love: 0 } },
     ],
+    // NPC끼리의 첫 관계 [누가, 누구를, 호감, 신뢰, 애정]
+    npcRelations: rels([['yuna', 'minho', 15, 10], ['minho', 'yuna', 20, 15, 10], ['prof', 'minho', -10, -5], ['minho', 'prof', -5, 10], ['yuna', 'prof', 0, 5], ['prof', 'yuna', 10, 10]]),
     factions: [
       { id: 'band', name: '밴드 동아리', description: '해체 위기의 동아리.', standing: 5 },
       { id: 'council', name: '학생회', description: '축제 무대 배정을 쥐고 있다.', standing: 0 },
@@ -106,12 +120,14 @@ export const PRESETS = [
     ],
     npcs: [
       { id: 'vega', name: '베가 사령관', age: 48, role: '정거장 사령관', personality: '냉정한 원칙주의자', description: '연방 소속.',
-        schedule: { morning: 'bridge', day: 'bridge', evening: 'bridge', night: 'bar' }, relationship: { affection: 0, trust: 0, love: 0 } },
+        schedule: sch('bridge bridge bridge bar bridge bridge bar'), relationship: { affection: 0, trust: 0, love: 0 } },
       { id: 'rin', name: '린', age: 29, role: '통신 연구원', personality: '수줍고 집요함', description: '신호를 처음 발견했다.',
-        schedule: { morning: 'lab', day: 'lab', evening: 'bar', night: 'lab' }, relationship: { affection: 5, trust: 0, love: 0 } },
+        schedule: sch('lab lab lab bar lab bar lab'), relationship: { affection: 5, trust: 0, love: 0 } },
       { id: 'jax', name: '잭스', age: 35, role: '밀수업자', personality: '능글맞고 계산적', description: '뭐든 구해준다.',
-        schedule: { morning: 'dock', day: 'bar', evening: 'bar', night: 'dock' }, relationship: { affection: 0, trust: 0, love: 0 } },
+        schedule: sch('dock dock bar bar bar bar dock'), relationship: { affection: 0, trust: 0, love: 0 } },
     ],
+    // NPC끼리의 첫 관계 [누가, 누구를, 호감, 신뢰, 애정]
+    npcRelations: rels([['vega', 'rin', 10, 20], ['rin', 'vega', 5, 15], ['vega', 'jax', -20, -30], ['jax', 'vega', -10, -20], ['rin', 'jax', 5, -10], ['jax', 'rin', 15, 5]]),
     factions: [
       { id: 'fed', name: '연방군', description: '정거장을 통제한다.', standing: 0 },
       { id: 'union', name: '광부 조합', description: '파업을 준비 중.', standing: 0 },
@@ -142,12 +158,14 @@ export const PRESETS = [
     ],
     npcs: [
       { id: 'queen', name: '중전 윤씨', age: 30, role: '중전', personality: '온화해 보이나 속을 알 수 없음', description: '후사가 없어 불안하다.',
-        schedule: { morning: 'palace', day: 'palace', evening: 'garden', night: 'palace' }, relationship: { affection: 0, trust: 0, love: 0 } },
+        schedule: sch('palace palace palace palace garden garden palace'), relationship: { affection: 0, trust: 0, love: 0 } },
       { id: 'sanggung', name: '최 상궁', age: 50, role: '제조상궁', personality: '엄격하고 노련함', description: '궁인들의 우두머리.',
-        schedule: { morning: 'quarters', day: 'kitchen', evening: 'quarters', night: 'quarters' }, relationship: { affection: 0, trust: 5, love: 0 } },
+        schedule: sch('quarters quarters kitchen kitchen kitchen quarters quarters'), relationship: { affection: 0, trust: 5, love: 0 } },
       { id: 'guard', name: '이 무관', age: 28, role: '내금위 무관', personality: '과묵하고 충직함', description: '후원 경비를 맡는다.',
-        schedule: { morning: 'garden', day: 'palace', evening: 'garden', night: 'garden' }, relationship: { affection: 0, trust: 0, love: 0 } },
+        schedule: sch('garden garden palace palace garden garden garden'), relationship: { affection: 0, trust: 0, love: 0 } },
     ],
+    // NPC끼리의 첫 관계 [누가, 누구를, 호감, 신뢰, 애정]
+    npcRelations: rels([['queen', 'sanggung', 20, 30], ['sanggung', 'queen', 30, 40], ['guard', 'queen', 10, 40], ['queen', 'guard', 5, 20], ['sanggung', 'guard', 0, 10], ['guard', 'sanggung', 5, 10]]),
     factions: [
       { id: 'queen', name: '중전 세력', description: '정통성을 지키려 한다.', standing: 0 },
       { id: 'consort', name: '희빈 세력', description: '권력을 넓히려 한다.', standing: 0 },
@@ -178,12 +196,14 @@ export const PRESETS = [
     ],
     npcs: [
       { id: 'hana', name: '하나', age: 33, role: '캠프 리더', personality: '단호하고 책임감 강함', description: '전직 소방관.',
-        schedule: { morning: 'camp', day: 'wall', evening: 'camp', night: 'wall' }, relationship: { affection: 0, trust: 0, love: 0 } },
+        schedule: sch('wall camp wall camp wall camp wall'), relationship: { affection: 0, trust: 0, love: 0 } },
       { id: 'doc', name: '박 선생', age: 61, role: '의사', personality: '지쳤지만 따뜻함', description: '유일한 의료인.',
-        schedule: { morning: 'clinic', day: 'clinic', evening: 'clinic', night: 'camp' }, relationship: { affection: 5, trust: 0, love: 0 } },
+        schedule: sch('camp clinic clinic camp clinic clinic camp'), relationship: { affection: 5, trust: 0, love: 0 } },
       { id: 'tae', name: '태식', age: 38, role: '수색대장', personality: '거칠고 의심 많음', description: '신입을 믿지 않는다.',
-        schedule: { morning: 'ruins', day: 'ruins', evening: 'camp', night: 'camp' }, relationship: { affection: -10, trust: -10, love: 0 } },
+        schedule: sch('camp ruins ruins ruins ruins camp camp'), relationship: { affection: -10, trust: -10, love: 0 } },
     ],
+    // NPC끼리의 첫 관계 [누가, 누구를, 호감, 신뢰, 애정]
+    npcRelations: rels([['hana', 'doc', 25, 40], ['doc', 'hana', 20, 35], ['hana', 'tae', 10, 20], ['tae', 'hana', 15, 30, 15], ['doc', 'tae', -5, 0], ['tae', 'doc', 0, 10]]),
     factions: [
       { id: 'camp', name: '캠프 주민', description: '지친 생존자들.', standing: 0 },
       { id: 'raiders', name: '약탈자 무리', description: '캠프를 노린다.', standing: -30 },
@@ -214,12 +234,14 @@ export const PRESETS = [
     ],
     npcs: [
       { id: 'jiho', name: '지호', age: 31, role: '어부', personality: '무뚝뚝하지만 섬세함', description: '매일 아침 커피를 사러 온다.',
-        schedule: { morning: 'cafe', day: 'market', evening: 'beach', night: 'market' }, relationship: { affection: 5, trust: 5, love: 0 } },
+        schedule: sch('market cafe market market market beach market'), relationship: { affection: 5, trust: 5, love: 0 } },
       { id: 'sora', name: '소라', age: 26, role: '사서', personality: '조용하고 상상력 풍부', description: '소설을 쓰고 있다.',
-        schedule: { morning: 'library', day: 'library', evening: 'cafe', night: 'beach' }, relationship: { affection: 0, trust: 0, love: 0 } },
+        schedule: sch('library library library cafe library cafe beach'), relationship: { affection: 0, trust: 0, love: 0 } },
       { id: 'grandpa', name: '김 영감', age: 78, role: '이장', personality: '고집스럽지만 정 많음', description: '할머니의 오랜 친구.',
-        schedule: { morning: 'market', day: 'cafe', evening: 'market', night: 'library' }, relationship: { affection: 10, trust: 10, love: 0 } },
+        schedule: sch('market market market cafe cafe market library'), relationship: { affection: 10, trust: 10, love: 0 } },
     ],
+    // NPC끼리의 첫 관계 [누가, 누구를, 호감, 신뢰, 애정]
+    npcRelations: rels([['jiho', 'sora', 10, 5, 15], ['sora', 'jiho', 10, 5], ['grandpa', 'jiho', 30, 30], ['jiho', 'grandpa', 25, 30], ['grandpa', 'sora', 20, 15], ['sora', 'grandpa', 15, 15]]),
     factions: [
       { id: 'village', name: '마을 주민회', description: '작은 마을의 여론.', standing: 10 },
       { id: 'franchise', name: '프랜차이즈 카페', description: '마을 입구에 들어설 예정.', standing: 0 },

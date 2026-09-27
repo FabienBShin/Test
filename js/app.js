@@ -107,10 +107,28 @@ function openSetup(w) {
   show('setup');
 }
 
-$('#setup-form').onsubmit = (e) => {
+$('#setup-form').onsubmit = async (e) => {
   e.preventDefault();
   const f = e.target;
-  game = S.newGame(pendingWorld, { name: f.name.value.trim(), personality: f.personality.value.trim(), appearance: f.appearance.value.trim() });
+  const btn = f.querySelector('button[type=submit]');
+  if (btn.disabled) return;
+  const p = pendingWorld.protagonist;
+  const custom = { name: f.name.value.trim(), personality: f.personality.value.trim(), appearance: f.appearance.value.trim() };
+  let statNote = '';
+  if (pendingWorld.modules.stats && settings.apiKey) {
+    btn.disabled = true; btn.textContent = 'AI가 능력치를 정하는 중…';
+    try {
+      const r = await AI.decideStats(pendingWorld, { name: custom.name || p.name, personality: custom.personality || p.personality, appearance: custom.appearance || p.appearance }, settings);
+      custom.stats = r.stats;
+      statNote = `AI가 정한 능력치: ${Object.entries(r.stats).map(([k, v]) => `${k} ${v}`).join(', ')}${r.reason ? `\n(${r.reason})` : ''}`;
+    } catch (err) {
+      statNote = `⚠️ AI가 능력치를 정하지 못해 기본값으로 시작합니다. (${err.message})`;
+    } finally {
+      btn.disabled = false; btn.textContent = '게임 시작';
+    }
+  }
+  game = S.newGame(pendingWorld, custom);
+  if (statNote) game.log.push({ role: 'system', text: statNote });
   game.log.push({ role: 'system', text: `${S.timeLabel(game.time)} · ${S.placeName(game, game.location)}에서 이야기가 시작됩니다.` });
   game.choices = ['주변을 둘러본다', ...S.npcsHere(game).slice(0, 2).map((n) => `${n.name}에게 인사한다`)];
   autosave();
@@ -134,7 +152,7 @@ function renderGame() {
   renderTab();
 }
 
-async function act(text, { skipMinutes, sleeping = false } = {}) {
+async function act(text, { skipMinutes } = {}) {
   if (busy || !text) return;
   busy = true;
   game.log.push({ role: 'player', text });
@@ -143,15 +161,20 @@ async function act(text, { skipMinutes, sleeping = false } = {}) {
   try {
     let days = 0;
     if (skipMinutes != null) {
-      days = sleeping ? S.sleep(game, skipMinutes) : S.advanceTime(game, skipMinutes, { clampToWorld: false });
-      if (sleeping && S.STAMINA in game.player.stats) game.log.push({ role: 'system', text: `잠을 자고 ${S.STAMINA}이(가) 회복되었다. (${game.player.stats[S.STAMINA]}/${game.player.statMax[S.STAMINA]})` });
+      const r = S.rest(game, skipMinutes, { cap: false });
+      days = r.days;
+      logRecovery(r.gained);
       game.log.push({ role: 'system', text: `시간이 흘렀다. ${S.timeLabel(game.time)}` });
       game.choices = defaultChoices();
     } else {
       const r = await AI.gmTurn(game, text, settings);
       game.log.push({ role: 'gm', text: r.narration ?? '' });
       S.applyResult(game, r);
-      days = S.advanceTime(game, r.minutes);
+      if (r.resting) {
+        const rr = S.rest(game, r.minutes);
+        days = rr.days;
+        logRecovery(rr.gained);
+      } else days = S.advanceTime(game, r.minutes);
     }
     if (days > 0) await endOfDay(days);
     if (!hadEnding && game.ending) game.log.push({ role: 'system', text: `🏁 엔딩: ${game.ending.title}\n${game.ending.description}\n\n엔딩 이후에도 계속 플레이할 수 있습니다.` });
@@ -165,6 +188,10 @@ async function act(text, { skipMinutes, sleeping = false } = {}) {
     autosave();
     renderGame();
   }
+}
+
+function logRecovery(gained) {
+  if (gained > 0) game.log.push({ role: 'system', text: `쉬면서 ${S.STAMINA}이(가) ${gained} 회복되었다. (${game.player.stats[S.STAMINA]}/${game.player.statMax[S.STAMINA]})` });
 }
 
 async function endOfDay(days) {
@@ -192,8 +219,8 @@ document.querySelectorAll('[data-skip]').forEach((b) => b.addEventListener('clic
   const v = b.dataset.skip;
   if (v === 'sleep') {
     const target = 1440 - game.time.minute + game.world.time.startHour * 60;
-    act('잠자리에 든다', { skipMinutes: target % 1440 || 1440, sleeping: true });
-  } else act(`${Number(v) / 60}시간을 보낸다`, { skipMinutes: Number(v) });
+    act('잠자리에 든다', { skipMinutes: target % 1440 || 1440 });
+  } else act(`${Number(v) / 60}시간 쉰다`, { skipMinutes: Number(v) });
 }));
 $('#btn-save').onclick = () => openSlots('save');
 $('#btn-settings-2').onclick = openSettings;
@@ -232,8 +259,8 @@ function renderTab() {
     ],
     people: () => g.world.npcs.map((n) => {
       const s = g.npcs[n.id];
-      const where = S.placeName(g, n.schedule[S.slotOf(g.time.minute)]);
-      const here = n.schedule[S.slotOf(g.time.minute)] === g.location;
+      const where = S.placeName(g, S.npcPlace(n, g.time.minute));
+      const here = S.npcPlace(n, g.time.minute) === g.location;
       return el('div', { className: `item${here ? ' here' : ''}` },
         el('b', { textContent: `${n.name} (${n.role})` }),
         el('div', { className: 'small muted', textContent: `📍 ${where}${here ? ' · 여기 있음' : ''}` }),
@@ -244,7 +271,7 @@ function renderTab() {
     }),
     map: () => g.world.places.map((p) => {
       const here = p.id === g.location;
-      const who = g.world.npcs.filter((n) => n.schedule[S.slotOf(g.time.minute)] === p.id).map((n) => n.name).join(', ');
+      const who = g.world.npcs.filter((n) => S.npcPlace(n, g.time.minute) === p.id).map((n) => n.name).join(', ');
       return el('div', { className: `item${here ? ' here' : ''}` },
         el('b', { textContent: `${here ? '📍 ' : ''}${p.name}` }),
         el('div', { className: 'small muted', textContent: p.description }),
@@ -338,7 +365,9 @@ function validateWorld(w) {
   if (!places.has(w.startLocation)) return 'startLocation이 places에 없습니다.';
   for (const n of w.npcs) {
     if (Number(n.age) < 18) return `${n.name}: NPC는 성인(18세 이상)이어야 합니다.`; // 임시 규칙
-    for (const slot of Object.keys(S.SLOTS)) if (!places.has(n.schedule?.[slot])) return `${n.name}의 ${S.SLOTS[slot]} 일과 장소가 places에 없습니다.`;
+    const legacy = n.schedule && S.LEGACY_SLOTS.every((k) => k in n.schedule) && !S.PERIODS.every((p) => p.key in n.schedule);
+    const keys = legacy ? S.LEGACY_SLOTS : S.PERIODS.map((p) => p.key);
+    for (const k of keys) if (!places.has(n.schedule?.[k])) return `${n.name}의 ${S.PERIODS.find((p) => p.key === k)?.label ?? k} 일과 장소가 places에 없습니다.`;
   }
   return null;
 }

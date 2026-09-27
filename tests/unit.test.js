@@ -36,7 +36,9 @@ test('프리셋 데이터가 서로 맞물린다 (일과 장소, 시작 장소, 
   for (const p of PRESETS) {
     const places = new Set(p.places.map((x) => x.id));
     assert.ok(places.has(p.startLocation), p.id);
-    for (const n of p.npcs) for (const slot of Object.keys(S.SLOTS)) assert.ok(places.has(n.schedule[slot]), `${p.id}/${n.id}/${slot}`);
+    for (const n of p.npcs) for (const { key } of S.PERIODS) assert.ok(places.has(n.schedule[key]), `${p.id}/${n.id}/${key}`);
+    const ids = new Set(p.npcs.map((n) => n.id));
+    for (const [a, row] of Object.entries(p.npcRelations)) for (const b of Object.keys(row)) assert.ok(ids.has(a) && ids.has(b) && a !== b, `${p.id} 관계 ${a}→${b}`);
     assert.ok(p.endings.length >= 2);
     if (p.modules.stats) assert.ok(S.STAMINA in p.protagonist.stats, `${p.id} 체력`);
   }
@@ -65,10 +67,17 @@ test('시간대 이름은 사회적 통념을 따른다', () => {
     ['새벽', '새벽', '아침', '아침', '오전', '오전', '점심', '오후', '오후', '저녁', '저녁', '밤', '밤']);
 });
 
-test('NPC 일과 구간 경계', () => {
-  const at = (h) => S.slotOf(h * 60);
-  assert.deepEqual([5, 6, 11, 12, 17, 18, 20, 21, 0].map(at),
-    ['night', 'morning', 'morning', 'day', 'day', 'evening', 'evening', 'night', 'night']);
+test('NPC 일과는 7구간을 따른다', () => {
+  const mira = preset('fantasy').npcs.find((n) => n.id === 'mira');
+  const at = (h) => S.npcPlace(mira, h * 60);
+  assert.deepEqual([3, 7, 10, 12, 15, 19, 22].map(at), ['inn', 'guild', 'guild', 'inn', 'guild', 'inn', 'inn']);
+  assert.deepEqual([5, 6, 8, 9, 12, 13, 18, 21].map((h) => S.periodKey(h * 60)),
+    ['dawn', 'morning', 'morning', 'forenoon', 'lunch', 'afternoon', 'evening', 'night']);
+});
+
+test('예전 4구간 일과로 만든 세계관도 동작한다', () => {
+  const npc = { schedule: { morning: 'a', day: 'b', evening: 'c', night: 'd' } };
+  assert.deepEqual([3, 7, 10, 12, 15, 19, 22].map((h) => S.npcPlace(npc, h * 60)), ['d', 'a', 'a', 'b', 'b', 'c', 'd']);
 });
 
 test('AI가 정한 시간은 세계관 범위로 제한된다 (아주 큰 값, 음수, 문자, 없음)', () => {
@@ -102,27 +111,44 @@ test('시간대에 따라 NPC가 다른 장소에 있다', () => {
   assert.ok(S.npcsHere(g).some((n) => n.id === 'mira'));
 });
 
-// ---------- 수면 ----------
+// ---------- 수면·휴식 ----------
 test('6시간 이상 자면 체력이 최대치까지 회복되고, 넘치지 않는다', () => {
   const g = start();
   g.player.stats.체력 = 2;
-  S.sleep(g, 8 * 60);
+  assert.equal(S.rest(g, 8 * 60).gained, 8);
   assert.equal(g.player.stats.체력, g.player.statMax.체력);
-  S.sleep(g, 8 * 60);
+  assert.equal(S.rest(g, 8 * 60).gained, 0);
   assert.equal(g.player.stats.체력, g.player.statMax.체력);
 });
 
-test('짧게 자면 잔 시간에 비례해 회복된다', () => {
+test('짧게 쉬면 쉰 시간에 비례해 적게 회복된다', () => {
   const g = start();
-  g.player.stats.체력 = 0;
-  S.sleep(g, 3 * 60);
-  assert.equal(g.player.stats.체력, Math.ceil(g.player.statMax.체력 / 2));
+  const got = (m) => { g.player.stats.체력 = 0; return S.rest(g, m).gained; };
+  const [h1, h3, h6] = [got(60), got(180), got(360)];
+  assert.ok(h1 < h3 && h3 < h6, `${h1} < ${h3} < ${h6}`);
+  assert.equal(h3, Math.ceil(g.player.statMax.체력 / 2));
+  assert.equal(h6, g.player.statMax.체력);
 });
 
-test('능력치가 없는 세계관에서 수면은 오류 없이 시간만 흐른다', () => {
+test('AI가 정한 휴식은 세계관 시간 범위와 관계없이 최대 16시간, 버튼은 제한 없음', () => {
+  const g = start('campus'); // 행동 최대 240분
+  const t = () => g.time.day * 1440 + g.time.minute;
+  let b = t(); S.rest(g, 480); assert.equal(t() - b, 480);
+  b = t(); S.rest(g, 99999); assert.equal(t() - b, 960);
+  b = t(); S.rest(g, 1440, { cap: false }); assert.equal(t() - b, 1440);
+  b = t(); S.rest(g, 'x'); assert.equal(t() - b, g.world.time.defaultMinutes);
+});
+
+test('능력치가 없는 세계관에서 휴식은 오류 없이 시간만 흐른다', () => {
   const g = start('joseon');
-  assert.equal(S.sleep(g, 1440), 1);
+  assert.deepEqual(S.rest(g, 1440, { cap: false }), { days: 1, gained: 0 });
   assert.deepEqual(g.player.stats, {});
+});
+
+test('테스트 모드에서 잔다, 쉰다고 입력하면 휴식으로 처리된다', async () => {
+  assert.equal((await AI.gmTurn(start(), '여관에서 잔다', { apiKey: '' })).resting, true);
+  assert.equal((await AI.gmTurn(start(), '잠시 쉰다', { apiKey: '' })).resting, true);
+  assert.equal((await AI.gmTurn(start(), '검을 휘두른다', { apiKey: '' })).resting, undefined);
 });
 
 test('체력은 AI가 올려도 최대치를 넘지 않는다', () => {
@@ -133,7 +159,8 @@ test('체력은 AI가 올려도 최대치를 넘지 않는다', () => {
 });
 
 // ---------- 관계 ----------
-test('관계 수치는 한 번에 최대 ±20, 전체 -100~100', () => {
+test('관계 수치는 한 번에 최대 ±50, 전체 -100~100', () => {
+  assert.equal(S.MAX_REL_STEP, 50);
   const g = start();
   const base = g.npcs.mira.affection;
   S.applyResult(g, { relationshipChanges: [{ npc: 'mira', affection: 9999, trust: -9999, love: 5 }] });
@@ -153,10 +180,10 @@ test('상호작용 기억은 개수 제한 없이 끝까지 남는다', () => {
 
 test('NPC끼리의 관계는 방향별로 따로 바뀐다', () => {
   const g = start();
-  S.applyResult(g, { npcRelationChanges: [{ from: 'mira', to: 'borg', affection: 7, trust: 50 }] });
-  assert.equal(g.npcRelations.mira.borg.affection, 7);
-  assert.equal(g.npcRelations.mira.borg.trust, S.MAX_REL_STEP);
-  assert.equal(g.npcRelations.borg.mira.affection, 0);
+  S.applyResult(g, { npcRelationChanges: [{ from: 'mira', to: 'borg', affection: 7, trust: -90 }] });
+  assert.equal(g.npcRelations.mira.borg.affection, 20 + 7);
+  assert.equal(g.npcRelations.mira.borg.trust, 30 - S.MAX_REL_STEP);
+  assert.equal(g.npcRelations.borg.mira.affection, 15);
   assert.equal(g.npcRelations.mira.mira, undefined);
 });
 
@@ -352,13 +379,21 @@ test('테스트 모드에서도 요약이 동작한다', async () => {
 });
 
 // ---------- 하루 소식 ----------
+test('프리셋 NPC끼리의 첫 관계가 게임에 들어간다', () => {
+  const g = start();
+  assert.deepEqual(g.npcRelations.elena.mira, { affection: 25, trust: 20, love: 0 });
+  assert.deepEqual(g.npcRelations.borg.elena, { affection: -5, trust: -10, love: 0 });
+  assert.deepEqual(start('campus').npcRelations.minho.yuna, { affection: 20, trust: 15, love: 10 });
+  assert.ok(AI.worldBrief(g, '').includes('엘레나→미라 호감25 신뢰20'));
+});
+
 test('하루 소식은 NPC끼리의 관계를 바꾼다 (테스트 모드)', async () => {
   const g = start();
+  const before = JSON.stringify(g.npcRelations);
   const r = await AI.dailyEvents(g, { apiKey: '' });
   assert.equal(r.news.length, 1);
   S.applyResult(g, r);
-  const changed = Object.values(g.npcRelations).flatMap((row) => Object.values(row)).some((x) => x.affection !== 0);
-  assert.ok(changed);
+  assert.notEqual(JSON.stringify(g.npcRelations), before);
 });
 
 test('NPC가 0명이거나 1명인 세계관에서도 하루 소식이 오류 없이 만들어진다', async () => {
@@ -378,6 +413,34 @@ test('테스트 모드에서도 진행도가 100에 닿으면 엔딩이 나온�
   do { r = await AI.gmTurn(g, '일한다', { apiKey: '' }); } while (!r.goalProgressDelta);
   S.applyResult(g, r);
   assert.equal(g.ending?.id, 'good');
+});
+
+// ---------- 시작 능력치 ----------
+test('AI가 성격을 보고 능력치 값을 정한다. 종류는 그대로, 이상한 값은 걸러낸다', async () => {
+  fakeGemini(() => okJson({ stats: { 힘: 7, 지혜: 'abc', 매력: -3, 체력: 999, 마법: 50 }, reason: '힘이 센 성격' }));
+  const r = await AI.decideStats(preset('fantasy'), { name: '아린', personality: '힘이 세고 단순함', appearance: '' }, KEY);
+  assert.deepEqual(Object.keys(r.stats), Object.keys(preset('fantasy').protagonist.stats));
+  assert.equal(r.stats.힘, 7);
+  assert.equal(r.stats.지혜, 2, '숫자가 아니면 기준값');
+  assert.equal(r.stats.매력, 1, '최소 1');
+  assert.equal(r.stats.체력, 30, '최대 기준값의 3배');
+  assert.equal(r.reason, '힘이 센 성격');
+  assert.ok(calls[0].body.contents[0].parts[0].text.includes('힘이 세고 단순함'));
+});
+
+test('AI가 정한 능력치로 게임이 시작되고, 체력 최대치도 그 값이 된다', () => {
+  const g = start('fantasy', { stats: { 힘: 6, 지혜: 1, 매력: 3, 체력: 14 } });
+  assert.equal(g.player.stats.힘, 6);
+  assert.equal(g.player.statMax.체력, 14);
+  assert.equal(preset('fantasy').protagonist.stats.힘, 3, '프리셋 원본은 그대로');
+});
+
+test('관계 규칙 프롬프트에 결정적 사건 ±50이 들어간다', async () => {
+  fakeGemini(() => okJson({ narration: 'ok' }));
+  await AI.gmTurn(start(), 'a', KEY);
+  const sys = calls[0].body.systemInstruction.parts[0].text;
+  assert.ok(sys.includes('±50'));
+  assert.ok(sys.includes('"resting"'));
 });
 
 // ---------- 이전 세이브 ----------
