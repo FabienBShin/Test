@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>시뮬레이션 RP</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 타이틀 -->
+  <section id="screen-title" class="screen">
+    <header class="title-head">
+      <h1>🎲 시뮬레이션 RP</h1>
+      <div class="row">
+        <button id="btn-continue">이어하기</button>
+        <button id="btn-open-slots">불러오기</button>
+        <label class="btn">파일 불러오기<input type="file" id="file-import-save" accept=".json" hidden></label>
+        <button id="btn-open-settings">⚙️ 설정</button>
+      </div>
+      <p id="mode-note" class="muted"></p>
+    </header>
+    <h2>기본 세계관</h2>
+    <div id="preset-list" class="cards"></div>
+    <h2>내 세계관</h2>
+    <div class="row">
+      <button id="btn-new-world">✨ 새 세계관 만들기</button>
+      <label class="btn">세계관 파일 불러오기<input type="file" id="file-import-world" accept=".json" hidden></label>
+    </div>
+    <div id="world-list" class="cards"></div>
+  </section>
+
+  <!-- 캐릭터 설정 -->
+  <section id="screen-setup" class="screen" hidden>
+    <button class="back" data-goto="title">← 돌아가기</button>
+    <h2 id="setup-world"></h2>
+    <p id="setup-summary" class="muted"></p>
+    <div class="panel">
+      <p><b>역할</b> <span id="setup-role"></span></p>
+      <p><b>배경</b> <span id="setup-background"></span></p>
+      <p><b>목표</b> <span id="setup-goal"></span></p>
+    </div>
+    <form id="setup-form" class="form">
+      <label>이름<input name="name" required maxlength="20"></label>
+      <label>성격<textarea name="personality" rows="2" maxlength="200"></textarea></label>
+      <label>외모<textarea name="appearance" rows="2" maxlength="200"></textarea></label>
+      <button type="submit" class="primary">게임 시작</button>
+    </form>
+  </section>
+
+  <!-- 게임 -->
+  <section id="screen-game" class="screen" hidden>
+    <header class="topbar">
+      <div>
+        <b id="g-world"></b>
+        <div id="g-time" class="muted"></div>
+      </div>
+      <div class="row">
+        <button id="btn-save">💾 저장</button>
+        <button id="btn-settings-2">⚙️</button>
+        <button id="btn-to-title">🏠</button>
+      </div>
+    </header>
+    <div class="game-body">
+      <main class="play">
+        <div id="log" class="log" aria-live="polite"></div>
+        <div id="status" class="status" hidden></div>
+        <div id="choices" class="choices"></div>
+        <form id="action-form" class="action">
+          <input id="action-input" placeholder="행동이나 대사를 자유롭게 입력" autocomplete="off" maxlength="500">
+          <button type="submit" class="primary">보내기</button>
+        </form>
+        <div class="row quick">
+          <button data-skip="60">⏩ 1시간</button>
+          <button data-skip="240">⏩ 4시간</button>
+          <button data-skip="sleep">🌙 다음 날 아침까지</button>
+        </div>
+      </main>
+      <aside class="side">
+        <nav class="tabs" id="tabs">
+          <button data-tab="me" class="on">나</button>
+          <button data-tab="people">인물</button>
+          <button data-tab="map">지도</button>
+          <button data-tab="bag">소지품</button>
+          <button data-tab="quest">목표</button>
+          <button data-tab="world">세계</button>
+        </nav>
+        <div id="tab-body" class="tab-body"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 설정 -->
+  <dialog id="dlg-settings">
+    <form method="dialog" class="form" id="settings-form">
+      <h3>설정</h3>
+      <label>Gemini API 키
+        <input name="apiKey" type="password" autocomplete="off" placeholder="비워두면 테스트 모드">
+      </label>
+      <p class="muted small">키는 이 브라우저에만 저장되고, Gemini API 호출 외에는 어디로도 전송되지 않습니다.</p>
+      <label>모델
+        <input name="model" list="model-list">
+        <datalist id="model-list">
+          <option value="gemini-2.5-flash"><option value="gemini-2.5-pro"><option value="gemini-2.5-flash-lite">
+        </datalist>
+      </label>
+      <label>응답 길이
+        <select name="responseLength">
+          <option value="short">짧게</option><option value="normal">보통</option><option value="long">길게</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" name="adultMode"> 성인 모드</label>
+      <p class="muted small">미성년자가 등장하는 성적 콘텐츠는 어떤 모드에서도 차단됩니다.</p>
+      <div class="row">
+        <button value="cancel">취소</button>
+        <button value="ok" class="primary">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 세이브 슬롯 -->
+  <dialog id="dlg-slots">
+    <form method="dialog">
+      <h3 id="slots-title">세이브 슬롯</h3>
+      <div id="slot-list" class="slots"></div>
+      <div class="row">
+        <button type="button" id="btn-export-save">📤 현재 게임 파일로 내보내기</button>
+        <button value="close">닫기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 세계관 에디터 -->
+  <dialog id="dlg-editor" class="wide">
+    <form method="dialog" class="form" id="editor-form">
+      <h3>세계관 에디터</h3>
+      <label>AI로 초안 만들기
+        <div class="row">
+          <input id="gen-prompt" placeholder="예: 스팀펑크 도시의 탐정물">
+          <button type="button" id="btn-generate">✨ 생성</button>
+        </div>
+      </label>
+      <label>세계관 데이터 (JSON)
+        <textarea id="editor-json" rows="18" spellcheck="false"></textarea>
+      </label>
+      <p id="editor-error" class="error"></p>
+      <div class="row">
+        <button value="cancel">취소</button>
+        <button type="button" id="btn-editor-save" class="primary">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
