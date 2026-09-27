@@ -3,6 +3,9 @@ import * as S from './state.js';
 import * as AI from './ai.js';
 import * as Store from './storage.js';
 
+const modelSelect = document.querySelector('#settings-form [name=model]');
+modelSelect.append(...AI.MODELS.map((m) => Object.assign(document.createElement('option'), { value: m.id, textContent: m.label })));
+
 const $ = (s) => document.querySelector(s);
 const el = (tag, props = {}, ...kids) => {
   const e = Object.assign(document.createElement(tag), props);
@@ -24,6 +27,10 @@ function show(name) {
   if (name === 'game') renderGame();
 }
 document.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => show(b.dataset.goto)));
+
+function autosave() {
+  if (!Store.autosave(game)) toast('⚠️ 브라우저 저장 공간이 부족해 자동 저장하지 못했습니다. 파일로 내보내 두세요.');
+}
 
 function toast(msg) {
   const t = $('#toast');
@@ -56,11 +63,11 @@ function renderTitle() {
   $('#world-list').replaceChildren(...(mine.length ? mine.map((w) => worldCard(w, { editable: true })) : [el('p', { className: 'muted', textContent: '아직 만든 세계관이 없습니다.' })]));
   $('#btn-continue').disabled = !Store.loadAutosave();
   $('#mode-note').textContent = settings.apiKey
-    ? `AI 연결됨 (${settings.model})${settings.adultMode ? ' · 성인 모드' : ''}`
+    ? `AI 연결됨 (${settings.model === 'auto' ? '모델 자동 선택' : settings.model})${settings.adultMode ? ' · 성인 모드' : ''}`
     : '테스트 모드: API 키 없이 미리 짜둔 반응으로 플레이합니다. 설정에서 Gemini API 키를 넣으면 AI가 이야기를 만듭니다.';
 }
 
-$('#btn-continue').onclick = () => { const g = Store.loadAutosave(); if (g) { game = g; show('game'); } };
+$('#btn-continue').onclick = () => { const g = Store.loadAutosave(); if (g) { game = S.migrate(g); show('game'); } };
 $('#btn-open-settings').onclick = openSettings;
 $('#btn-open-slots').onclick = () => openSlots('load');
 $('#btn-new-world').onclick = () => openEditor(null);
@@ -71,7 +78,7 @@ $('#file-import-save').onchange = async (e) => {
   try {
     const g = await Store.readJsonFile(f);
     if (!g?.world || !g?.player) throw new Error();
-    game = g; Store.autosave(game); show('game');
+    game = S.migrate(g); autosave(); show('game');
   } catch { toast('세이브 파일을 읽지 못했습니다.'); }
 };
 $('#file-import-world').onchange = async (e) => {
@@ -106,7 +113,7 @@ $('#setup-form').onsubmit = (e) => {
   game = S.newGame(pendingWorld, { name: f.name.value.trim(), personality: f.personality.value.trim(), appearance: f.appearance.value.trim() });
   game.log.push({ role: 'system', text: `${S.timeLabel(game.time)} · ${S.placeName(game, game.location)}에서 이야기가 시작됩니다.` });
   game.choices = ['주변을 둘러본다', ...S.npcsHere(game).slice(0, 2).map((n) => `${n.name}에게 인사한다`)];
-  Store.autosave(game);
+  autosave();
   show('game');
 };
 
@@ -127,15 +134,17 @@ function renderGame() {
   renderTab();
 }
 
-async function act(text, { skipMinutes } = {}) {
+async function act(text, { skipMinutes, sleeping = false } = {}) {
   if (busy || !text) return;
   busy = true;
   game.log.push({ role: 'player', text });
   renderGame();
+  const hadEnding = game.ending;
   try {
     let days = 0;
     if (skipMinutes != null) {
-      days = S.advanceTime(game, skipMinutes, { clampToWorld: false });
+      days = sleeping ? S.sleep(game, skipMinutes) : S.advanceTime(game, skipMinutes, { clampToWorld: false });
+      if (sleeping && S.STAMINA in game.player.stats) game.log.push({ role: 'system', text: `잠을 자고 ${S.STAMINA}이(가) 회복되었다. (${game.player.stats[S.STAMINA]}/${game.player.statMax[S.STAMINA]})` });
       game.log.push({ role: 'system', text: `시간이 흘렀다. ${S.timeLabel(game.time)}` });
       game.choices = defaultChoices();
     } else {
@@ -145,15 +154,15 @@ async function act(text, { skipMinutes } = {}) {
       days = S.advanceTime(game, r.minutes);
     }
     if (days > 0) await endOfDay(days);
-    const ending = S.checkEnding(game);
-    if (ending) game.log.push({ role: 'system', text: `🏁 엔딩: ${ending.title}\n${ending.description}\n\n엔딩 이후에도 계속 플레이할 수 있습니다.` });
+    if (!hadEnding && game.ending) game.log.push({ role: 'system', text: `🏁 엔딩: ${game.ending.title}\n${game.ending.description}\n\n엔딩 이후에도 계속 플레이할 수 있습니다.` });
+    await AI.summarize(game, settings).catch(() => {}); // 요약 실패는 다음 턴에 다시 시도
   } catch (err) {
     game.log.pop(); // 실패한 행동은 기록에서 뺀다
     game.log.push({ role: 'error', text: `⚠️ ${err.message}` });
     $('#action-input').value = text;
   } finally {
     busy = false;
-    Store.autosave(game);
+    autosave();
     renderGame();
   }
 }
@@ -183,12 +192,12 @@ document.querySelectorAll('[data-skip]').forEach((b) => b.addEventListener('clic
   const v = b.dataset.skip;
   if (v === 'sleep') {
     const target = 1440 - game.time.minute + game.world.time.startHour * 60;
-    act('잠자리에 든다', { skipMinutes: target % 1440 || 1440 });
+    act('잠자리에 든다', { skipMinutes: target % 1440 || 1440, sleeping: true });
   } else act(`${Number(v) / 60}시간을 보낸다`, { skipMinutes: Number(v) });
 }));
 $('#btn-save').onclick = () => openSlots('save');
 $('#btn-settings-2').onclick = openSettings;
-$('#btn-to-title').onclick = () => { Store.autosave(game); show('title'); };
+$('#btn-to-title').onclick = () => { autosave(); show('title'); };
 
 // ---------- 사이드 패널 ----------
 
@@ -203,6 +212,12 @@ $('#tabs').addEventListener('click', (e) => {
 const meter = (label, v, shown = v) => el('div', {},
   el('span', { className: 'small', textContent: `${label} ${shown}` }),
   el('div', { className: 'bar' }, el('i', { style: `width:${Math.max(0, (v + 100) / 2)}%` })));
+
+function npcRelText(id) {
+  const row = game.npcRelations?.[id] ?? {};
+  return Object.entries(row).filter(([, r]) => r.affection || r.trust || r.love)
+    .map(([to, r]) => `→ ${S.npcById(game, to)?.name ?? to}: 호감${r.affection} 신뢰${r.trust} 애정${r.love}`).join('\n');
+}
 
 function renderTab() {
   const g = game;
@@ -224,6 +239,7 @@ function renderTab() {
         el('div', { className: 'small muted', textContent: `📍 ${where}${here ? ' · 여기 있음' : ''}` }),
         meter('호감', s.affection), meter('신뢰', s.trust), meter('애정', s.love),
         s.memories.length ? el('details', {}, el('summary', { className: 'small', textContent: `기억 ${s.memories.length}개` }), ...s.memories.map((m) => el('div', { className: 'small', textContent: m }))) : null,
+        npcRelText(n.id) ? el('div', { className: 'small muted', textContent: npcRelText(n.id) }) : null,
         here ? el('button', { textContent: '💬 말 걸기', disabled: busy, onclick: () => act(`${n.name}에게 말을 건다`) }) : null);
     }),
     map: () => g.world.places.map((p) => {
@@ -244,7 +260,7 @@ function renderTab() {
       el('b', { textContent: `🎯 ${g.world.goal.title}` }),
       el('div', { className: 'small', textContent: g.world.goal.description }),
       meter('진행도', g.goalProgress * 2 - 100, `${g.goalProgress}/100`),
-      el('div', { className: 'small muted', textContent: `기한: ${g.world.goal.days}일차까지 (현재 ${g.time.day}일차)${g.ending ? ` · 달성한 엔딩: ${g.ending.title}` : ''}` }),
+      el('div', { className: 'small muted', textContent: `기준 기간: ${g.world.goal.days}일 (현재 ${g.time.day}일차)${g.ending ? ` · 달성한 엔딩: ${g.ending.title}` : ''}` }),
       el('b', { textContent: '서브 퀘스트' }),
       ...(g.quests.length ? g.quests.map((q) => el('div', { className: 'small', textContent: `${q.done ? '✅' : '⬜'} ${q.title}` })) : [el('div', { className: 'small muted', textContent: '없음' })]),
     ],
@@ -263,6 +279,7 @@ function renderTab() {
 function openSettings() {
   const f = $('#settings-form');
   f.apiKey.value = settings.apiKey; f.model.value = settings.model;
+  if (!f.model.value) f.model.value = 'auto';
   f.responseLength.value = settings.responseLength; f.adultMode.checked = settings.adultMode;
   $('#dlg-settings').showModal();
 }
@@ -272,7 +289,8 @@ $('#settings-form').adultMode.addEventListener('change', (e) => {
 $('#dlg-settings').addEventListener('close', () => {
   if ($('#dlg-settings').returnValue !== 'ok') return;
   const f = $('#settings-form');
-  settings = { apiKey: f.apiKey.value.trim(), model: f.model.value.trim() || Store.DEFAULT_SETTINGS.model, responseLength: f.responseLength.value, adultMode: f.adultMode.checked };
+  if (f.apiKey.value.trim() !== settings.apiKey) AI.resetCooldowns(); // 새 키는 한도가 따로다
+  settings = { apiKey: f.apiKey.value.trim(), model: f.model.value || Store.DEFAULT_SETTINGS.model, responseLength: f.responseLength.value, adultMode: f.adultMode.checked };
   Store.saveSettings(settings);
   toast('설정을 저장했습니다.');
   if (!$('#screen-title').hidden) renderTitle();
@@ -287,8 +305,8 @@ function openSlots(mode) {
   $('#slot-list').replaceChildren(...slots.map((s, i) => {
     const label = s ? `${s.game.world.emoji || ''} ${s.game.world.name} · ${s.game.player.name} · ${S.timeLabel(s.game.time)}` : '빈 슬롯';
     const btn = mode === 'save'
-      ? el('button', { textContent: '저장', onclick: () => { Store.saveSlot(i, game); toast(`슬롯 ${i + 1}에 저장했습니다.`); $('#dlg-slots').close(); } })
-      : el('button', { textContent: '불러오기', disabled: !s, onclick: () => { game = structuredClone(s.game); Store.autosave(game); $('#dlg-slots').close(); show('game'); } });
+      ? el('button', { textContent: '저장', onclick: () => { toast(Store.saveSlot(i, game) ? `슬롯 ${i + 1}에 저장했습니다.` : '⚠️ 저장 공간이 부족해 저장하지 못했습니다.'); $('#dlg-slots').close(); } })
+      : el('button', { textContent: '불러오기', disabled: !s, onclick: () => { game = S.migrate(structuredClone(s.game)); autosave(); $('#dlg-slots').close(); show('game'); } });
     return el('div', { className: 'slot' }, el('span', { className: 'small', textContent: `${i + 1}. ${label}` }), btn);
   }));
   $('#dlg-slots').showModal();
@@ -311,6 +329,11 @@ function validateWorld(w) {
   for (const k of ['id', 'name', 'summary', 'modules', 'time', 'goal', 'endings', 'protagonist', 'startLocation', 'places', 'npcs', 'factions']) {
     if (!(k in w)) return `"${k}" 항목이 없습니다.`;
   }
+  for (const k of ['places', 'npcs', 'factions', 'endings']) if (!Array.isArray(w[k])) return `"${k}"는 목록이어야 합니다.`;
+  const t = w.time ?? {};
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+  if (!['startDay', 'startHour', 'defaultMinutes', 'minMinutes', 'maxMinutes'].every((k) => isNum(t[k]))) return 'time에 startDay, startHour, defaultMinutes, minMinutes, maxMinutes 숫자가 모두 있어야 합니다.';
+  if (t.startDay < 1 || t.startHour < 0 || t.startHour > 23 || t.minMinutes <= 0 || t.minMinutes > t.maxMinutes || t.defaultMinutes < t.minMinutes || t.defaultMinutes > t.maxMinutes) return 'time 값의 범위가 올바르지 않습니다.';
   const places = new Set(w.places.map((p) => p.id));
   if (!places.has(w.startLocation)) return 'startLocation이 places에 없습니다.';
   for (const n of w.npcs) {

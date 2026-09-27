@@ -98,10 +98,7 @@
       </label>
       <p class="muted small">키는 이 브라우저에만 저장되고, Gemini API 호출 외에는 어디로도 전송되지 않습니다.</p>
       <label>모델
-        <input name="model" list="model-list">
-        <datalist id="model-list">
-          <option value="gemini-2.5-flash"><option value="gemini-2.5-pro"><option value="gemini-2.5-flash-lite">
-        </datalist>
+        <select name="model"><option value="auto">자동 (추천: 상황에 맞춰 고르고 한도 초과 시 다른 모델로 전환)</option></select>
       </label>
       <label>응답 길이
         <select name="responseLength">
@@ -109,7 +106,7 @@
         </select>
       </label>
       <label class="check"><input type="checkbox" name="adultMode"> 성인 모드</label>
-      <p class="muted small">미성년자가 등장하는 성적 콘텐츠는 어떤 모드에서도 차단됩니다.</p>
+      <p class="muted small">안전 필터는 최하 단계로 요청합니다. 미성년자가 등장하는 성적 콘텐츠는 어떤 모드에서도 차단됩니다.</p>
       <div class="row">
         <button value="cancel">취소</button>
         <button value="ok" class="primary">저장</button>

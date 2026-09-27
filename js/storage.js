@@ -11,7 +11,7 @@ function write(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
 }
 
-export const DEFAULT_SETTINGS = { apiKey: '', model: 'gemini-2.5-flash', responseLength: 'normal', adultMode: false };
+export const DEFAULT_SETTINGS = { apiKey: '', model: 'auto', responseLength: 'normal', adultMode: false };
 export const loadSettings = () => ({ ...DEFAULT_SETTINGS, ...read(K.settings, {}) });
 export const saveSettings = (s) => write(K.settings, s);
 
