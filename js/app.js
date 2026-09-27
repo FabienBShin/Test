@@ -46,8 +46,8 @@ function worldCard(w, { editable } = {}) {
   const actions = el('div', { className: 'row' },
     el('button', { className: 'primary', textContent: '플레이', onclick: () => openSetup(w) }),
     el('button', { textContent: editable ? '수정' : '복사해서 수정', onclick: () => openEditor(editable ? w : { ...structuredClone(w), id: `${w.id}-copy-${Date.now().toString(36)}`, name: `${w.name} (사본)` }) }),
-    editable ? el('button', { textContent: '📤', title: '파일로 내보내기', onclick: () => Store.downloadJson(`world-${w.id}.json`, w) }) : null,
-    editable ? el('button', { textContent: '🗑️', title: '삭제', onclick: () => { if (confirm(`"${w.name}"을(를) 삭제할까요?`)) { Store.deleteWorld(w.id); renderTitle(); } } }) : null,
+    editable ? el('button', { textContent: '내보내기', title: '파일로 내보내기', onclick: () => Store.downloadJson(`world-${w.id}.json`, w) }) : null,
+    editable ? el('button', { textContent: '삭제', title: '삭제', className: 'danger', onclick: () => { if (confirm(`"${w.name}"을(를) 삭제할까요?`)) { Store.deleteWorld(w.id); renderTitle(); } } }) : null,
   );
   return el('div', { className: 'card' },
     el('div', { className: 'emoji', textContent: w.emoji || '🌍' }),
@@ -143,7 +143,7 @@ function renderGame() {
   const log = $('#log');
   log.replaceChildren(...game.log.map((m) => el('div', { className: `msg ${m.role}`, textContent: m.text })));
   log.scrollTop = log.scrollHeight;
-  $('#choices').replaceChildren(...game.choices.map((c) => el('button', { textContent: `▸ ${c}`, onclick: () => act(c) })));
+  $('#choices').replaceChildren(...game.choices.map((c) => el('button', { textContent: c, onclick: () => act(c) })));
   for (const b of document.querySelectorAll('#screen-game button, #action-input')) {
     if (!b.closest('.tabs') && !b.closest('.topbar')) b.disabled = busy;
   }
@@ -267,7 +267,7 @@ function renderTab() {
         meter('호감', s.affection), meter('신뢰', s.trust), meter('애정', s.love),
         s.memories.length ? el('details', {}, el('summary', { className: 'small', textContent: `기억 ${s.memories.length}개` }), ...s.memories.map((m) => el('div', { className: 'small', textContent: m }))) : null,
         npcRelText(n.id) ? el('div', { className: 'small muted', textContent: npcRelText(n.id) }) : null,
-        here ? el('button', { textContent: '💬 말 걸기', disabled: busy, onclick: () => act(`${n.name}에게 말을 건다`) }) : null);
+        here ? el('button', { textContent: '말 걸기', disabled: busy, onclick: () => act(`${n.name}에게 말을 건다`) }) : null);
     }),
     map: () => g.world.places.map((p) => {
       const here = p.id === g.location;
@@ -384,7 +384,7 @@ $('#btn-generate').onclick = async (e) => {
   } catch (err) {
     $('#editor-error').textContent = err.message;
   } finally {
-    e.target.disabled = false; e.target.textContent = '✨ 생성';
+    e.target.disabled = false; e.target.textContent = 'AI로 생성';
   }
 };
 

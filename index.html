@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>시뮬레이션 RP</title>
   <meta name="description" content="Gemini AI가 게임 마스터가 되는 시뮬레이션 RP 게임">
-  <meta name="theme-color" content="#3b6ea8">
+  <meta name="theme-color" content="#f5f5f7">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="시뮬 RP">
@@ -18,12 +18,12 @@
   <!-- 타이틀 -->
   <section id="screen-title" class="screen">
     <header class="title-head">
-      <h1>🎲 시뮬레이션 RP</h1>
+      <h1>시뮬레이션 RP</h1>
       <div class="row">
-        <button id="btn-continue">이어하기</button>
+        <button id="btn-continue" class="primary">이어하기</button>
         <button id="btn-open-slots">불러오기</button>
         <label class="btn">파일 불러오기<input type="file" id="file-import-save" accept=".json" hidden></label>
-        <button id="btn-open-settings">⚙️ 설정</button>
+        <button id="btn-open-settings">설정</button>
       </div>
       <p id="mode-note" class="muted"></p>
     </header>
@@ -31,7 +31,7 @@
     <div id="preset-list" class="cards"></div>
     <h2>내 세계관</h2>
     <div class="row">
-      <button id="btn-new-world">✨ 새 세계관 만들기</button>
+      <button id="btn-new-world">＋ 새 세계관 만들기</button>
       <label class="btn">세계관 파일 불러오기<input type="file" id="file-import-world" accept=".json" hidden></label>
     </div>
     <div id="world-list" class="cards"></div>
@@ -39,7 +39,7 @@
 
   <!-- 캐릭터 설정 -->
   <section id="screen-setup" class="screen" hidden>
-    <button class="back" data-goto="title">← 돌아가기</button>
+    <button class="back" data-goto="title">‹ 뒤로</button>
     <h2 id="setup-world"></h2>
     <p id="setup-summary" class="muted"></p>
     <div class="panel">
@@ -63,9 +63,9 @@
         <div id="g-time" class="muted"></div>
       </div>
       <div class="row">
-        <button id="btn-save">💾 저장</button>
-        <button id="btn-settings-2">⚙️</button>
-        <button id="btn-to-title">🏠</button>
+        <button id="btn-save" class="icon-btn" aria-label="저장" title="저장"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M5 15v3a2 2 0 002 2h10a2 2 0 002-2v-3"/></svg></button>
+        <button id="btn-settings-2" class="icon-btn" aria-label="설정" title="설정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg></button>
+        <button id="btn-to-title" class="icon-btn" aria-label="처음 화면" title="처음 화면"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1v-9"/></svg></button>
       </div>
     </header>
     <div class="game-body">
@@ -78,9 +78,9 @@
           <button type="submit" class="primary">보내기</button>
         </form>
         <div class="row quick">
-          <button data-skip="60">⏩ 1시간</button>
-          <button data-skip="240">⏩ 4시간</button>
-          <button data-skip="sleep">🌙 다음 날 아침까지</button>
+          <button data-skip="60">1시간 쉬기</button>
+          <button data-skip="240">4시간 쉬기</button>
+          <button data-skip="sleep">다음 날 아침까지 자기</button>
         </div>
       </main>
       <aside class="side">
@@ -106,14 +106,15 @@
       </label>
       <p class="muted small">키는 이 브라우저에만 저장되고, Gemini API 호출 외에는 어디로도 전송되지 않습니다.</p>
       <label>모델
-        <select name="model"><option value="auto">자동 (추천: 상황에 맞춰 고르고 한도 초과 시 다른 모델로 전환)</option></select>
+        <select name="model"><option value="auto">자동 (추천)</option></select>
       </label>
+      <p class="muted small">자동: 상황에 맞는 모델을 고르고, 한도를 넘으면 다른 모델로 전환합니다.</p>
       <label>응답 길이
         <select name="responseLength">
           <option value="short">짧게</option><option value="normal">보통</option><option value="long">길게</option>
         </select>
       </label>
-      <label class="check"><input type="checkbox" name="adultMode"> 성인 모드</label>
+      <label class="check">성인 모드 <input type="checkbox" name="adultMode" role="switch"></label>
       <p class="muted small">안전 필터는 최하 단계로 요청합니다. 미성년자가 등장하는 성적 콘텐츠는 어떤 모드에서도 차단됩니다.</p>
       <div class="row">
         <button value="cancel">취소</button>
@@ -128,7 +129,7 @@
       <h3 id="slots-title">세이브 슬롯</h3>
       <div id="slot-list" class="slots"></div>
       <div class="row">
-        <button type="button" id="btn-export-save">📤 현재 게임 파일로 내보내기</button>
+        <button type="button" id="btn-export-save">현재 게임 파일로 내보내기</button>
         <button value="close">닫기</button>
       </div>
     </form>
@@ -141,7 +142,7 @@
       <label>AI로 초안 만들기
         <div class="row">
           <input id="gen-prompt" placeholder="예: 스팀펑크 도시의 탐정물">
-          <button type="button" id="btn-generate">✨ 생성</button>
+          <button type="button" id="btn-generate">AI로 생성</button>
         </div>
       </label>
       <label>세계관 데이터 (JSON)
