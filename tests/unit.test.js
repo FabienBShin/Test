@@ -243,8 +243,22 @@ test('엔딩은 AI 판단으로 한 번만 정해지고, 기간이 지나도 자
 test('자동 모드는 작업마다 다른 순서로 모델을 쓴다', () => {
   assert.equal(AI.modelOrder(KEY, 'story')[0], 'gemini-3.8-flash');
   assert.match(AI.modelOrder(KEY, 'summary')[0], /lite/);
-  assert.equal(AI.modelOrder({ ...KEY, model: 'gemini-2.5-pro' }, 'story')[0], 'gemini-2.5-pro');
-  for (const chain of Object.values(AI.CHAINS)) assert.equal(new Set(chain).size, AI.MODELS.length);
+  assert.equal(AI.modelOrder({ ...KEY, model: 'gemini-3.5-flash' }, 'story')[0], 'gemini-3.5-flash');
+  for (const chain of Object.values(AI.CHAINS)) {
+    assert.equal(new Set(chain).size, AI.MODELS.length);
+    assert.ok(chain.every((m) => AI.MODELS.some((x) => x.id === m)), '순서에는 목록에 있는 모델만');
+  }
+});
+
+test('새 사용자가 쓸 수 없는 2.5 모델과 종료 예정 3.1 Flash-Lite는 목록에 없다', () => {
+  const ids = AI.MODELS.map((m) => m.id);
+  assert.deepEqual(ids, ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']);
+  assert.ok(!ids.some((id) => /^gemini-2\.|3\.1-flash-lite/.test(id)));
+});
+
+test('목록에서 빠진 예전 모델이 설정에 저장돼 있으면 무시하고 자동 순서를 쓴다', () => {
+  assert.deepEqual(AI.modelOrder({ ...KEY, model: 'gemini-2.5-flash-lite' }, 'story'), AI.CHAINS.story);
+  assert.deepEqual(AI.modelOrder({ ...KEY, model: 'gemini-2.5-flash' }, 'summary'), AI.CHAINS.summary);
 });
 
 test('한도 초과(429)면 다음 모델로 넘어가고, 그 모델은 잠시 쉰다', async () => {

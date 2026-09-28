@@ -91,7 +91,7 @@ test('[기준2,4] 설정에 키를 넣으면 AI가 응답하고, 키는 Gemini �
   await page.click('#btn-open-settings');
   await page.fill('#settings-form [name=apiKey]', 'secret-test-key');
   assert.equal(await page.inputValue('#settings-form [name=model]'), 'auto');
-  assert.equal(await page.locator('#settings-form [name=model] option').count(), 9);
+  assert.equal(await page.locator('#settings-form [name=model] option').count(), 6); // 자동 + 모델 5개
   await page.click('#settings-form button[value=ok]');
   await startPreset(page, 0, { personality: '겁이 많고 수다스러움' });
   await say(page, '미라에게 인사한다');

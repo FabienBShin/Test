@@ -3,23 +3,24 @@ import { npcPlace, timeLabel, placeName, npcsHere, STAMINA, PERIODS, relationSta
 
 // ---------- 모델 ----------
 
+// Gemini API의 현재 GA(Stable) 모델만 쓴다 (2026-09 공식 문서 기준, 모두 종료일 미정).
+// 2.5 Pro/Flash/Flash-Lite는 예전에 쓰던 사용자에게만 열려 있어 새 사용자는 404가 나므로 뺐다.
+// 3.1 Flash-Lite는 종료 예정(2027-05-07)이라 권장 대체 모델인 3.5 Flash-Lite로 바꿨다.
 export const MODELS = [
   { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
   { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
+  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
   { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
-  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
-  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
-  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite' },
 ];
 
-// 작업 종류별 모델 순서. 이야기 진행은 상위 모델부터, 요약처럼 부담 없는 작업은 가벼운 모델부터 써서
-// 상위 모델의 무료 한도를 이야기 진행에 아껴 둔다. 한도를 넘으면 다음 모델로 넘어간다.
+// 작업 종류별 모델 순서. 이야기 진행은 구글이 새 프로젝트에 권장하는 3.8 Flash부터, 요약처럼 부담 없는
+// 작업은 역시 권장 모델인 3.5 Flash-Lite부터 써서 상위 모델의 무료 한도를 이야기 진행에 아껴 둔다.
+// 한도를 넘거나 오류가 나면 다음 모델로 넘어간다.
 export const CHAINS = {
-  story: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'],
-  daily: ['gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-2.5-pro', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'],
-  summary: ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-3.8-flash', 'gemini-2.5-pro'],
+  story: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'],
+  daily: ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'],
+  summary: ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash'],
 };
 
 const cooldown = new Map(); // 모델 id → 다시 써볼 수 있는 시각(ms)
@@ -28,7 +29,8 @@ export function resetCooldowns() { cooldown.clear(); }
 
 export function modelOrder(settings, task, now = Date.now()) {
   let chain = CHAINS[task] ?? CHAINS.story;
-  if (settings.model && settings.model !== 'auto') chain = [settings.model, ...chain.filter((m) => m !== settings.model)];
+  // 목록에서 빠진 예전 모델이 저장돼 있으면 무시하고 자동 순서를 쓴다
+  if (MODELS.some((m) => m.id === settings.model)) chain = [settings.model, ...chain.filter((m) => m !== settings.model)];
   const ready = chain.filter((m) => (cooldown.get(m) ?? 0) <= now);
   return ready;
 }
