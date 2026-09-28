@@ -535,3 +535,16 @@ test('templates가 있으면 형식과 현재 상태 값을 프롬프트에 넣�
   const plain = calls[0].body.systemInstruction.parts[0].text;
   for (const s of ['출력 형식 규칙', '현재 상태 값', '관계 단계', '소속 진영']) assert.ok(!plain.includes(s), s);
 });
+
+test('종족전쟁 규칙: 임무는 카드 제시 후에만 수락 선택지를 내고, 이 규칙이 AI 프롬프트에 들어간다', async () => {
+  const tone = preset('racewar').tone;
+  for (const s of ['①→② 순서', 'templates.missionCard', '카드를 제시한 뒤에만', '카드 없이 "임무 수락"', 'choices 필드도 같다', '첫 임무도 예외가 아니다', '3번 규칙의 임무 응답']) {
+    assert.ok(tone.includes(s), s);
+  }
+  assert.ok(!tone.includes('3. 임무 카드:'), '예전 3번 규칙은 합쳐져 없어야 한다');
+  const g = start('racewar');
+  S.applyStartChoice(g, 'join-solen');
+  fakeGemini(() => okJson({ narration: 'ok' }));
+  await AI.gmTurn(g, '임무를 받는다', KEY);
+  assert.ok(calls[0].body.systemInstruction.parts[0].text.includes('카드 없이 "임무 수락"'));
+});
