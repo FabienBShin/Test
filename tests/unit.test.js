@@ -26,8 +26,8 @@ const KEY = { apiKey: 'test-key', model: 'auto', responseLength: 'normal', adult
 test.beforeEach(() => AI.resetCooldowns());
 
 // ---------- 프리셋 ----------
-test('프리셋 6종이 있고, 학원물은 대학교이며 모든 NPC가 성인이다', () => {
-  assert.equal(PRESETS.length, 6);
+test('프리셋 7종이 있고, 학원물은 대학교이며 모든 NPC가 성인이다', () => {
+  assert.equal(PRESETS.length, 7);
   assert.match(preset('campus').name, /대학/);
   for (const p of PRESETS) for (const n of p.npcs) assert.ok(n.age >= 18, `${p.id}/${n.id}`);
 });
@@ -453,4 +453,71 @@ test('이전 버전 세이브를 불러오면 새 항목이 채워진다', () =>
   assert.equal(g.npcRelations.mira.borg.trust, 0);
   assert.equal(g.player.statMax.체력, 10);
   assert.equal(S.migrate(null), null);
+});
+
+// ---------- 선택 필드: startChoices, relationStages, templates ----------
+test('선택 필드가 없는 기존 프리셋은 게임 상태에 새 항목이 생기지 않는다', () => {
+  for (const p of PRESETS.filter((x) => x.id !== 'racewar')) {
+    const g = S.newGame(p, {});
+    assert.ok(!('pendingStart' in g) && !('faction' in g), p.id);
+    assert.equal(S.applyStartChoice(g, 'join-solen'), false);
+  }
+});
+
+test('startChoices가 있으면 오프닝 전에 선택을 기다리고, 선택하면 패치가 적용된다', () => {
+  const g = start('racewar');
+  assert.equal(g.pendingStart, true);
+  assert.equal(g.faction, null);
+  assert.equal(g.location, 'border-post');
+  assert.equal(S.applyStartChoice(g, 'nope'), false);
+  assert.equal(g.pendingStart, true);
+  assert.equal(S.applyStartChoice(g, 'join-silvares'), true);
+  assert.equal(g.pendingStart, false);
+  assert.equal(g.faction, 'silvares');
+  assert.equal(g.startChoice, 'join-silvares');
+  assert.equal(g.location, 'silvares-grove');
+  assert.equal(g.player.role, '신병 [D급]');
+  assert.match(g.player.background, /엘프/);
+  assert.match(g.player.appearance, /긴 귀와 은발/);
+  assert.deepEqual(g.player.stats, { 공헌: 0, 무력: 2, 지략: 3, 체력: 3 });
+  assert.deepEqual(g.player.statMax, g.player.stats);
+  assert.deepEqual(g.player.inventory, [], '경제 모듈이 꺼져 있으면 소지품은 비어 있다');
+  assert.equal(g.npcs.elwin.affection, 10);
+  assert.equal(g.npcs.silvan.trust, 10);
+  assert.equal(g.npcs.kael.affection, 0, '다른 진영 NPC는 그대로');
+  assert.equal(g.npcs.elwin.memories.length, 0, '관계 외 항목은 유지');
+  assert.equal(preset('racewar').npcs.find((n) => n.id === 'elwin').relationship.affection, 0, '프리셋 원본은 그대로');
+});
+
+test('startChoices 패치는 플레이어가 직접 바꾼 이름·외모를 덮어쓰지 않는다', () => {
+  const g = start('racewar', { name: '린', appearance: '붉은 망토' });
+  S.applyStartChoice(g, 'join-nocturga');
+  assert.equal(g.player.name, '린');
+  assert.equal(g.player.appearance, '붉은 망토');
+  assert.equal(g.player.role, '신병 [D급]');
+});
+
+test('relationStages: affection 이상인 가장 큰 min의 단계명, 없으면 null', () => {
+  const w = preset('racewar');
+  assert.deepEqual([0, 39, 40, 59, 60, 79, 80, 94, 95, 100].map((a) => S.relationStage(w, a)),
+    ['경계', '경계', '인정', '인정', '신뢰', '신뢰', '유대', '유대', '맹약', '맹약']);
+  assert.equal(S.relationStage(w, -5), null);
+  assert.equal(S.relationStage(preset('fantasy'), 50), null);
+  assert.equal(S.relationStage({ relationStages: [{ min: 50, name: 'B' }, { min: 0, name: 'A' }] }, 70), 'B', '순서와 무관');
+});
+
+test('templates가 있으면 형식과 현재 상태 값을 프롬프트에 넣고, 없으면 기존 프롬프트 그대로', async () => {
+  const g = start('racewar');
+  S.applyStartChoice(g, 'join-solen');
+  fakeGemini(() => okJson({ narration: 'ok' }));
+  await AI.gmTurn(g, '막사를 둘러본다', KEY);
+  const sys = calls[0].body.systemInstruction.parts[0].text;
+  for (const s of ['출력 형식 규칙', '🏠 장소: {대장소}', '⚜️ 임무 — {임무명}', '🗺️ 세력도 ⚔️ 솔렌 {n}%', '그대로 옮겨 적는다', '현재 상태 값',
+    '솔렌 성왕국 40 | 실바레스 대수림 30 | 녹투르가 마왕국 30', '소속 진영: 솔렌 성왕국', '직책: 신병 [D급]', '공헌 0', '카엘 10 [경계]', '(관계 단계: 경계)']) {
+    assert.ok(sys.includes(s), s);
+  }
+  calls = [];
+  await AI.gmTurn(start('fantasy'), 'a', KEY);
+  const plain = calls[0].body.systemInstruction.parts[0].text;
+  for (const s of ['출력 형식 규칙', '현재 상태 값', '관계 단계', '소속 진영']) assert.ok(!plain.includes(s), s);
 });

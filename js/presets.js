@@ -247,4 +247,280 @@ export const PRESETS = [
       { id: 'franchise', name: '프랜차이즈 카페', description: '마을 입구에 들어설 예정.', standing: 0 },
     ],
   },
+  {
+    id: 'racewar',
+    emoji: '⚔️',
+    name: '종족전쟁: 벨테른 대륙',
+    summary: '세 종족이 맞붙은 벨테른 대륙. 한 진영의 신병으로 입대해 임무를 수행하고, 세력도를 뒤집어 전쟁의 향방을 바꿔라.',
+
+    tone: `
+벨테른 대륙은 세 종족의 전면전 중이다. 인간의 솔렌 성왕국(성법과 성기사단), 엘프의 실바레스 대수림(정령술과 숲의 가호), 마족의 녹투르가 마왕국(계약술과 마물의 군세). 어느 한쪽이 대륙의 패권을 쥐기 전까지 전쟁은 끝나지 않는다. 주인공은 국경의 모병소에서 세 진영 중 하나를 택해 신병으로 입대한다.
+
+
+- 3인칭 '—었다'체 서술과 캐릭터 대사를 교대한다.
+- 감각적인 묘사(소리·냄새·온기·피로)를 곁들인다.
+- 캐릭터별 말투를 구분한다. 모르가나는 1인칭 '짐'을 쓰는 오만하고 여유로운 말투. 카엘은 단호한 군인 말투. 엘윈은 침착하고 함축적인 말투.
+- 단역은 [솔렌 병사], [모병관]처럼 역할명으로 표기한다.
+- 효과음은 단독 행으로 쓴다. (예: 쾅—!)
+- 전투에 주사위나 수치 판정을 쓰지 않는다. 서술로 승패의 흐름을 만들고, 장면 끝은 클리프행어로 끊어 주인공의 다음 행동을 유도한다.
+
+
+1. 오프닝: 앱이 startChoices를 지원하면 버튼 선택으로 진영을 정한다. 지원하지 않으면 첫 응답에서 세 진영의 소개와 함께 셋 중 하나를 고르라는 선택지를 제시하고, 주인공이 고르기 전에는 모병소 장면을 진행하지 않는다.
+2. 장면 헤더: 매 장면 시작 시 templates.sceneHeader 형식으로 장소·날씨·일차를 적는다. 시간은 앱의 시간 상태값을 그대로 쓴다. AI가 임의로 계산하지 않는다.
+3. 임무 카드: 임무를 줄 때 templates.missionCard 형식으로 제시한다. 난이도는 ★~★★★ 3칸. 성공/실패 효과를 명시한다.
+4. 상태창: 매 턴 마지막에 templates.statusWindow 형식으로 출력한다. 수치는 앱의 현재 상태값을 그대로 옮겨 적는다. AI가 임의로 바꾸지 않는다.
+5. 세력도: 세 진영의 합은 항상 100을 유지한다. 임무 카드의 수치대로 증감시키되, 한 진영이 오르면 나머지는 내린다.
+6. 호감도: affection 0~100. 단계는 relationStages를 따른다(경계 0~ / 인정 40~ / 신뢰 60~ / 유대 80~ / 맹약 95~). 임무 성공 시 의뢰인의 호감도 +8, 임무 수락을 협상(조건을 붙여 수락)하면 +6. 실패하면 -5. 적 진영 대표와 처음 마주치기 전까지는 호감도 0을 유지한다.
+7. 직책과 공헌: stats.공헌 0~100. 승급 사다리는 신병[D급] → 십인장[C급] → 백인장[B급] → 천인장[A급] → 장군[S급]. 공헌이 100에 닿으면 승급 심사를 거쳐 한 단계 오르고 공헌은 0으로 돌아간다. 직책 표기는 protagonist.role을 갱신한다.
+8. 임무 상태: '없음' → '제시 중: {임무명}' → '진행 중: {임무명} · {별점}' → 정산 후 '없음'. 한 번에 하나의 임무만 진행한다.
+9. 선택지: 주인공은 자유 행동을 선언한다. NPC는 가끔 귓속말 형식의 양자택일 질문을 던진다. 명시적 선택 UI는 오프닝 진영 선택에만 쓴다.
+10. 시간: 장거리 이동이나 행군은 서술을 압축하고 시간을 점프시킨다(최대 12시간).
+11. 미조우 NPC: 주인공과 떨어진 주요 인물의 행방은 📌행에 '첩보에 따르면 ○○ 방면에서 군을 움직이는 중' 수준의 소문으로만 쓴다. 정확한 위치·감정·속마음은 첫 조우 전까지 공개하지 않는다.
+12. 수위: 일반 수위. 신체 강조 묘사를 하지 않는다. 캐릭터의 매력은 위압감·말투·권위·분위기로 표현한다.`,
+
+    modules: { economy: false, stats: true},
+    currency: '은화',
+    time: { startDay: 1, startHour: 6, defaultMinutes: 30, minMinutes: 10, maxMinutes: 720},
+
+    goal: {
+      title: '소속 진영 세력도 60% 달성',
+      description: '30일 안에 소속 진영의 세력도를 60%까지 끌어올려라. 임무를 완수할 때마다 전황이 움직인다. 진영이 무너지면 모든 것이 끝난다.',
+      days: 30,
+    },
+    endings: [
+      {
+        id: 'victory',
+        title: '대륙의 패권',
+        description: '소속 진영의 세력도가 60%를 넘었다. 전쟁의 향방이 기울고, 주인공은 쌓아온 직책에 걸맞은 자리에서 새로운 시대를 맞는다.',
+      },
+      {
+        id: 'fall',
+        title: '무너진 전선',
+        description: '소속 진영의 세력도가 10% 아래로 떨어졌다. 전선이 붕괴하고, 주인공은 폐허 속에서 생존을 건 선택에 직면한다.',
+      },
+      {
+        id: 'armistice',
+        title: '불완전한 휴전',
+        description: '30일이 지나도 어느 진영도 60%에 닿지 못했다. 세 나라는 휴전 협정에 서명한다. 적 진영 대표와 깊은 유대를 쌓았다면, 전후의 화친을 잇는 가교가 된다.',
+      },
+    ],
+
+    protagonist: {
+      role: '지원병 [미배속]',
+      background: '국경 마을 출신. 전쟁으로 고향을 잃고 모병소의 문을 두드렸다. 어느 진영에도 속하지 않은 채, 선택의 기로에 서 있다.',
+      name: '아덴',
+      personality: '결단력이 있고 의리가 있음',
+      appearance: '검은 머리, 단단한 체격, 낡은 여행자 복장',
+      stats: { '공헌': 0, '무력': 2, '지략': 2, '체력': 3},
+      money: 20,
+      inventory: ['낡은 단검', '행군 배낭', '건빵 3개'],
+    },
+
+    startLocation: 'border-post',
+
+    places: [
+      { id: 'border-post', name: '국경 모병소', description: '세 나라의 경계에 선 중립지대. 전쟁을 피해 모여든 지원병들로 북적이는 목책 요새.'},
+      { id: 'solen-camp', name: '솔렌 전진 막사', description: '성기사단의 깃발이 펄럭이는 인간 진영의 전진 기지. 규율과 기도로 돌아가는 강철의 진지.'},
+      { id: 'silvares-grove', name: '실바레스 대수림 경계', description: '수천 년 묵은 거목들이 늘어선 엘프의 영토. 숲 자체가 살아서 침입자를 감시한다.'},
+      { id: 'nocturga-fort', name: '녹투르가 흑요새', description: '검은 돌로 쌓은 마족의 요새. 계약의 문양이 새겨진 성벽 너머로 마물의 울음소리가 울린다.'},
+      { id: 'ash-plain', name: '잿빛 평원', description: '세 진영의 군세가 맞부딪치는 격전지. 불탄 깃발과 부러진 창이 뒹구는 회색 벌판.'},
+      { id: 'belcross', name: '교역도시 벨크로스', description: '전쟁 중에도 장이 서는 중립 교역도시. 정보상과 용병, 첩보원들이 오가는 소문의 심장.'},
+    ],
+    npcs: [
+      {
+        id: 'kael',
+        name: '카엘',
+        age: 32,
+        role: '솔렌 성왕국 성기사단 부단장',
+        personality: '엄격하고 원칙주의적이나, 부하를 위해서는 목숨도 아끼지 않는 군인.',
+        description: '은빛 갑주에 성법의 문신을 새긴 장신한 사내. 눈빛 하나로 병사들을 움직인다.',
+        schedule: { dawn: 'solen-camp', morning: 'solen-camp', forenoon: 'ash-plain', lunch: 'solen-camp', afternoon: 'solen-camp', evening: 'solen-camp', night: 'solen-camp' },
+        relationship: { affection: 0, trust: 0, love: 0 },
+      },
+      {
+        id: 'elwin',
+        name: '엘윈',
+        age: 210,
+        role: '실바레스 대수림 숲 파수대장',
+        personality: '침착하고 통찰력이 뛰어나며, 숲을 위해서라면 냉혹한 결단도 마다하지 않는다.',
+        description: '외형은 20대 후반의 여성. 210세를 살아온 눈이 모든 것을 꿰뚫는다. 활시위보다 말이 먼저 나가는 법이 없다.',
+        schedule: { dawn: 'silvares-grove', morning: 'silvares-grove', forenoon: 'silvares-grove', lunch: 'silvares-grove', afternoon: 'ash-plain', evening: 'silvares-grove', night: 'silvares-grove' },
+        relationship: { affection: 0, trust: 0, love: 0 },
+      },
+      {
+        id: 'morgana',
+        name: '모르가나',
+        age: 340,
+        role: '녹투르가 마왕국 마왕',
+        personality: '오만하고 여유로우며, 흥미를 끄는 존재에게는 뜻밖의 관대함을 보인다. 1인칭은 짐.',
+        description: '외형은 20대의 여성. 340세를 살아온 마왕. 검은 왕관을 쓰고 옥좌에 앉아 전쟁을 장기판처럼 내려다본다.',
+        schedule: { dawn: 'nocturga-fort', morning: 'nocturga-fort', forenoon: 'nocturga-fort', lunch: 'nocturga-fort', afternoon: 'nocturga-fort', evening: 'nocturga-fort', night: 'nocturga-fort' },
+        relationship: { affection: 0, trust: 0, love: 0 },
+      },
+      {
+        id: 'dante',
+        name: '단테',
+        age: 28,
+        role: '솔렌 성왕국 부관 (카엘의 직속)',
+        personality: '깐깐한 교관형. 신병을 혹독하게 굴리지만, 살아남은 자에게는 평생의 충성을 바친다.',
+        description: '턱에 흉터가 있는 정통 군인. 카엘의 명령이라면 불 속에도 뛰어든다.',
+        schedule: { dawn: 'solen-camp', morning: 'solen-camp', forenoon: 'solen-camp', lunch: 'solen-camp', afternoon: 'ash-plain', evening: 'solen-camp', night: 'solen-camp' },
+        relationship: { affection: 0, trust: 0, love: 0 },
+      },
+      {
+        id: 'silvan',
+        name: '실반',
+        age: 150,
+        role: '실바레스 파수대 부관 (엘윈의 직속)',
+        personality: '과묵한 저격수. 말보다 화살이 빠르고, 숲의 뜻을 거역하는 법이 없다.',
+        description: '외형은 20대의 남성. 150세를 살아온 엘프. 엘윈의 그림자처럼 따라다니며 경계를 선다.',
+        schedule: { dawn: 'silvares-grove', morning: 'silvares-grove', forenoon: 'silvares-grove', lunch: 'silvares-grove', afternoon: 'silvares-grove', evening: 'silvares-grove', night: 'silvares-grove' },
+        relationship: { affection: 0, trust: 0, love: 0 },
+      },
+      {
+        id: 'aza',
+        name: '아자',
+        age: 120,
+        role: '녹투르가 마왕 직속 부관',
+        personality: '냉소적이고 계산적. 마왕의 눈치를 살피며, 쓸모 있는 자를 가려내는 데 능하다.',
+        description: '외형은 20대 초반의 여성. 120세를 살아온 마족. 모르가나의 명령을 한 치의 오차도 없이 집행한다.',
+        schedule: { dawn: 'nocturga-fort', morning: 'nocturga-fort', forenoon: 'nocturga-fort', lunch: 'nocturga-fort', afternoon: 'ash-plain', evening: 'nocturga-fort', night: 'nocturga-fort' },
+        relationship: { affection: 0, trust: 0, love: 0 },
+      },
+      {
+        id: 'pio',
+        name: '피오',
+        age: 19,
+        role: '국경 모병소의 지원병 동기',
+        personality: '밝고 수다스러운 분위기 메이커. 겁은 많지만 동료를 버리는 법이 없다.',
+        description: '인간 청년. 전쟁 고아 출신으로, 모병소에서 만난 동기들을 진짜 가족처럼 여긴다.',
+        schedule: { dawn: 'border-post', morning: 'border-post', forenoon: 'border-post', lunch: 'border-post', afternoon: 'border-post', evening: 'border-post', night: 'border-post' },
+        relationship: { affection: 15, trust: 15, love: 0 },
+      },
+      {
+        id: 'mia',
+        name: '미아',
+        age: 20,
+        role: '국경 모병소의 지원병 동기',
+        personality: '차분하고 손재주가 좋아 부상병들의 치료를 돕는다. 관찰력이 예리하다.',
+        description: '인간 여성. 약초꾼 집안 출신. 모병소의 의무실에서 일하며 전황의 소식을 가장 먼저 듣는다.',
+        schedule: { dawn: 'border-post', morning: 'border-post', forenoon: 'border-post', lunch: 'border-post', afternoon: 'border-post', evening: 'border-post', night: 'border-post' },
+        relationship: { affection: 15, trust: 15, love: 0 },
+      },
+    ],
+
+    npcRelations: {
+      kael: {
+        elwin: { affection: 0, trust: 0, love: 0 },
+        morgana: { affection: 0, trust: 0, love: 0 },
+        dante: { affection: 45, trust: 80, love: 0 },
+      },
+      elwin: {
+        kael: { affection: 0, trust: 0, love: 0 },
+        morgana: { affection: 0, trust: 0, love: 0 },
+        silvan: { affection: 40, trust: 85, love: 0 },
+        dante: { affection: 20, trust: 30, love: 0 },
+      },
+      morgana: {
+        kael: { affection: 0, trust: 0, love: 0 },
+        elwin: { affection: 0, trust: 0, love: 0 },
+        aza: { affection: 30, trust: 70, love: 0 },
+      },
+      dante: {
+        kael: { affection: 50, trust: 90, love: 0 },
+        elwin: { affection: 20, trust: 30, love: 0 },
+      },
+      silvan: { elwin: { affection: 45, trust: 90, love: 0 } },
+      aza: { morgana: { affection: 35, trust: 75, love: 0 } },
+      pio: { mia: { affection: 40, trust: 50, love: 0 } },
+      mia: { pio: { affection: 40, trust: 50, love: 0 } },
+    },
+
+    factions: [
+      { id: 'solen', name: '솔렌 성왕국', description: '인간의 나라. 성법과 성기사단으로 뭉친 강철의 왕국. 세력의 균형을 쥔 최강 진영.', standing: 40 },
+      { id: 'silvares', name: '실바레스 대수림', description: '엘프의 나라. 정령술과 숲의 가호로 요새화된 신비의 영토.', standing: 30 },
+      { id: 'nocturga', name: '녹투르가 마왕국', description: '마족의 나라. 계약술과 마물의 군세로 대륙을 위협하는 어둠의 왕국.', standing: 30 },
+    ],
+    // AI 출력 포맷 지시 (선택 필드 — 없으면 tone의 규칙만 따른다)
+    templates: {
+      sceneHeader: `🏠 장소: {대장소} · {소장소} | 🌤️ 날씨: {날씨}
+⏰ 시간: {N}일차 | {HH:MM}`,
+      missionCard: `⚜️ 임무 — {임무명} · {의뢰인}
+| {임무명} | 난이도 {★~★★★} |
+| 내용 | {목표} |
+| 성공 | {진영} +{n} · {진영} -{n} · {의뢰인} ▲ |
+| 실패 | {진영} +{n} · {진영} -{n}`,
+      statusWindow: `🗺️ 세력도 ⚔️ 솔렌 {n}% | 🌿 실바레스 {n}% | 🔥 녹투르가 {n}%
+👤 소속: {진영} · {종족} ({병과})
+🎖️ 직책 [{직책}: {등급}] 공헌 {n}%
+🎯 임무: {없음 | 제시 중: {임무명} | 진행 중: {임무명} · {★~★★★}}
+{이모지} {이름} [{단계명}] 호감도 {n}%
+📌 {현재 위치·행동} / {감정 이모지}
+(↑ 캐릭터별로 반복)`,
+    },
+
+    // 호감도 단계 (affection 기준, 선택 필드)
+    relationStages: [
+      { min: 0, name: '경계' },
+      { min: 40, name: '인정' },
+      { min: 60, name: '신뢰' },
+      { min: 80, name: '유대' },
+      { min: 95, name: '맹약' },
+    ],
+
+    // 오프닝 진영 선택 (선택 필드 — 앱 미지원 시 tone의 1번 규칙으로 대체)
+    startChoices: [
+      {
+        id: 'join-solen',
+        label: '⚔️ 솔렌 성왕국에 입대한다 (인간)',
+        factionId: 'solen',
+        startLocation: 'solen-camp',
+        protagonistPatch: {
+          role: '신병 [D급]',
+          background: '국경 마을 출신의 인간. 전쟁으로 고향을 잃고 솔렌 성왕국의 성기사단에 지원했다.',
+          appearance: '검은 머리, 단단한 체격의 인간 청년. 성기사단 견습 갑주를 걸쳤다.',
+          stats: { '공헌': 0, '무력': 3, '지략': 2, '체력': 3 },
+          inventory: ['성기사단 견습검', '행군 배낭', '건빵 3개'],
+        },
+        npcPatch: {
+          kael: { relationship: { affection: 10, trust: 10, love: 0 } },
+          dante: { relationship: { affection: 10, trust: 10, love: 0 } },
+        },
+      },
+      {
+        id: 'join-silvares',
+        label: '🌿 실바레스 대수림에 입대한다 (엘프)',
+        factionId: 'silvares',
+        startLocation: 'silvares-grove',
+        protagonistPatch: {
+          role: '신병 [D급]',
+          background: '국경 마을 출신의 엘프. 전쟁으로 고향을 잃고 실바레스 대수림의 파수대에 지원했다.',
+          appearance: '긴 귀와 은발이 특징인 엘프. 파수대 견습 복장을 갖췄다.',
+          stats: { '공헌': 0, '무력': 2, '지략': 3, '체력': 3 },
+          inventory: ['파수대 단궁', '행군 배낭', '건빵 3개'],
+        },
+        npcPatch: {
+          elwin: { relationship: { affection: 10, trust: 10, love: 0 } },
+          silvan: { relationship: { affection: 10, trust: 10, love: 0 } },
+        },
+      },
+      {
+        id: 'join-nocturga',
+        label: '🔥 녹투르가 마왕국에 입대한다 (마족)',
+        factionId: 'nocturga',
+        startLocation: 'nocturga-fort',
+        protagonistPatch: {
+          role: '신병 [D급]',
+          background: '국경 마을 출신의 마족. 전쟁으로 고향을 잃고 녹투르가 마왕국 마왕군에 지원했다.',
+          appearance: '작은 뿔과 붉은 눈동자의 마족. 마왕군 견습 복장을 갖췄다.',
+          stats: { '공헌': 0, '무력': 3, '지략': 3, '체력': 2 },
+          inventory: ['마왕군 단검', '행군 배낭', '건빵 3개'],
+        },
+        npcPatch: {
+          morgana: { relationship: { affection: 10, trust: 10, love: 0 } },
+          aza: { relationship: { affection: 10, trust: 10, love: 0 } },
+        },
+      },
+    ],
+  },
 ];

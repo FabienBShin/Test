@@ -81,7 +81,46 @@ export function newGame(world, custom) {
     log: [{ role: 'system', text: `${w.emoji} ${w.name}\n${w.summary}` }],
     choices: [],
     createdAt: Date.now(),
+    // 선택 필드 startChoices가 있으면 오프닝 전에 선택을 기다린다
+    ...(w.startChoices?.length ? { pendingStart: true, faction: null } : {}),
   };
+}
+
+// 선택 필드 startChoices: 고른 선택지의 시작 장소, 주인공 패치, NPC 관계 패치, 소속 진영을 게임에 적용한다.
+export function applyStartChoice(g, choiceId) {
+  const c = g.world.startChoices?.find((x) => x.id === choiceId);
+  if (!c) return false;
+  if (g.world.places.some((p) => p.id === c.startLocation)) g.location = c.startLocation;
+  const base = g.world.protagonist;
+  for (const [k, v] of Object.entries(c.protagonistPatch ?? {})) {
+    if (k === 'stats') {
+      if (g.world.modules.stats) { g.player.stats = { ...v }; g.player.statMax = { ...v }; }
+    } else if (k === 'inventory' || k === 'money') {
+      if (g.world.modules.economy) g.player[k] = Array.isArray(v) ? [...v] : v;
+    } else if (['name', 'personality', 'appearance'].includes(k)) {
+      if (g.player[k] === base[k]) g.player[k] = v; // 플레이어가 직접 바꾼 값은 유지
+    } else {
+      g.player[k] = v;
+    }
+  }
+  for (const [id, patch] of Object.entries(c.npcPatch ?? {})) {
+    if (g.npcs[id] && patch?.relationship) {
+      for (const k of relKeys) if (k in patch.relationship) g.npcs[id][k] = num(patch.relationship[k]);
+    }
+  }
+  g.faction = c.factionId ?? null;
+  g.startChoice = c.id;
+  g.pendingStart = false;
+  return true;
+}
+
+// 선택 필드 relationStages: affection 이상인 min 중 가장 큰 단계의 이름. 단계가 없거나 해당 없으면 null.
+export function relationStage(world, affection) {
+  let best = null;
+  for (const s of Array.isArray(world.relationStages) ? world.relationStages : []) {
+    if (affection >= s.min && (!best || s.min > best.min)) best = s;
+  }
+  return best?.name ?? null;
 }
 
 export const placeName = (g, id) => g.world.places.find((p) => p.id === id)?.name ?? id;
