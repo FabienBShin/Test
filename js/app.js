@@ -115,7 +115,8 @@ $('#setup-form').onsubmit = async (e) => {
   const p = pendingWorld.protagonist;
   const custom = { name: f.name.value.trim(), personality: f.personality.value.trim(), appearance: f.appearance.value.trim() };
   let statNote = '';
-  if (pendingWorld.modules.stats && settings.apiKey) {
+  // startChoices가 있으면 선택지의 능력치(protagonistPatch.stats)를 쓰므로 AI 능력치 결정은 건너뛴다
+  if (pendingWorld.modules.stats && settings.apiKey && !pendingWorld.startChoices?.length) {
     btn.disabled = true; btn.textContent = 'AI가 능력치를 정하는 중…';
     try {
       const r = await AI.decideStats(pendingWorld, { name: custom.name || p.name, personality: custom.personality || p.personality, appearance: custom.appearance || p.appearance }, settings);
@@ -129,11 +130,28 @@ $('#setup-form').onsubmit = async (e) => {
   }
   game = S.newGame(pendingWorld, custom);
   if (statNote) game.log.push({ role: 'system', text: statNote });
-  game.log.push({ role: 'system', text: `${S.timeLabel(game.time)} · ${S.placeName(game, game.location)}에서 이야기가 시작됩니다.` });
-  game.choices = ['주변을 둘러본다', ...S.npcsHere(game).slice(0, 2).map((n) => `${n.name}에게 인사한다`)];
+  if (game.pendingStart) {
+    game.log.push({ role: 'system', text: '이야기를 시작하기 전에 선택하세요.' });
+  } else {
+    beginStory();
+  }
   autosave();
   show('game');
 };
+
+function beginStory() {
+  game.log.push({ role: 'system', text: `${S.timeLabel(game.time)} · ${S.placeName(game, game.location)}에서 이야기가 시작됩니다.` });
+  game.choices = ['주변을 둘러본다', ...S.npcsHere(game).slice(0, 2).map((n) => `${n.name}에게 인사한다`)];
+}
+
+// 선택 필드 startChoices: 오프닝 전 선택
+function chooseStart(c) {
+  if (busy || !game.pendingStart || !S.applyStartChoice(game, c.id)) return;
+  game.log.push({ role: 'player', text: c.label });
+  beginStory();
+  autosave();
+  renderGame();
+}
 
 // ---------- 게임 ----------
 
@@ -143,9 +161,11 @@ function renderGame() {
   const log = $('#log');
   log.replaceChildren(...game.log.map((m) => el('div', { className: `msg ${m.role}`, textContent: m.text })));
   log.scrollTop = log.scrollHeight;
-  $('#choices').replaceChildren(...game.choices.map((c) => el('button', { textContent: c, onclick: () => act(c) })));
+  $('#choices').replaceChildren(...(game.pendingStart
+    ? game.world.startChoices.map((c) => el('button', { textContent: c.label, onclick: () => chooseStart(c) }))
+    : game.choices.map((c) => el('button', { textContent: c, onclick: () => act(c) }))));
   for (const b of document.querySelectorAll('#screen-game button, #action-input')) {
-    if (!b.closest('.tabs') && !b.closest('.topbar')) b.disabled = busy;
+    if (!b.closest('.tabs') && !b.closest('.topbar')) b.disabled = busy || (game.pendingStart && !b.closest('#choices'));
   }
   $('#status').hidden = !busy;
   $('#status').textContent = '이야기를 만드는 중…';
@@ -153,7 +173,7 @@ function renderGame() {
 }
 
 async function act(text, { skipMinutes } = {}) {
-  if (busy || !text) return;
+  if (busy || !text || game.pendingStart) return;
   busy = true;
   game.log.push({ role: 'player', text });
   renderGame();
@@ -254,6 +274,7 @@ function renderTab() {
       el('b', { textContent: `${g.player.name} · ${g.player.role}` }),
       el('div', { className: 'small', textContent: `성격: ${g.player.personality}` }),
       el('div', { className: 'small', textContent: `외모: ${g.player.appearance}` }),
+      g.faction ? el('div', { className: 'small', textContent: `소속: ${g.world.factions.find((f) => f.id === g.faction)?.name ?? g.faction}` }) : null,
       g.world.modules.stats ? el('div', { className: 'kv' }, ...Object.entries(g.player.stats).flatMap(([k, v]) => [el('span', { textContent: k }), el('b', { textContent: v })])) : null,
       g.world.modules.economy ? el('div', { textContent: `💰 ${g.player.money.toLocaleString()} ${g.world.currency}` }) : null,
     ],
@@ -262,7 +283,7 @@ function renderTab() {
       const where = S.placeName(g, S.npcPlace(n, g.time.minute));
       const here = S.npcPlace(n, g.time.minute) === g.location;
       return el('div', { className: `item${here ? ' here' : ''}` },
-        el('b', { textContent: `${n.name} (${n.role})` }),
+        el('b', { textContent: `${n.name} (${n.role})${S.relationStage(g.world, s.affection) ? ` [${S.relationStage(g.world, s.affection)}]` : ''}` }),
         el('div', { className: 'small muted', textContent: `📍 ${where}${here ? ' · 여기 있음' : ''}` }),
         meter('호감', s.affection), meter('신뢰', s.trust), meter('애정', s.love),
         s.memories.length ? el('details', {}, el('summary', { className: 'small', textContent: `기억 ${s.memories.length}개` }), ...s.memories.map((m) => el('div', { className: 'small', textContent: m }))) : null,

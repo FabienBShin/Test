@@ -1,5 +1,5 @@
 // AI 게임 마스터. 제공자(provider)를 분리해 두어 나중에 다른 AI를 추가할 수 있다.
-import { npcPlace, timeLabel, placeName, npcsHere, STAMINA, PERIODS } from './state.js';
+import { npcPlace, timeLabel, placeName, npcsHere, STAMINA, PERIODS, relationStage } from './state.js';
 
 // ---------- 모델 ----------
 
@@ -91,7 +91,7 @@ export function worldBrief(g, focusText) {
     const mem = focus.has(n.id)
       ? [s.memorySummary && `요약: ${s.memorySummary}`, recent.length && `최근: ${recent.join(' / ')}`].filter(Boolean).join(' | ')
       : [s.memorySummary, recent.slice(-2).join(' / ')].filter(Boolean).join(' | ');
-    return `- ${n.id} | ${n.name}(${n.age}세, ${n.role}) 성격:${n.personality}. 현재 위치:${placeName(g, npcPlace(n, g.time.minute))}. 플레이어에 대한 호감${s.affection} 신뢰${s.trust} 애정${s.love}. 플레이어와의 기억: ${mem || '없음'}`;
+    return `- ${n.id} | ${n.name}(${n.age}세, ${n.role}) 성격:${n.personality}. 현재 위치:${placeName(g, npcPlace(n, g.time.minute))}. 플레이어에 대한 호감${s.affection} 신뢰${s.trust} 애정${s.love}${stageText(g, s.affection)}. 플레이어와의 기억: ${mem || '없음'}`;
   }).join('\n');
   const overdue = g.time.day > w.goal.days;
   return [
@@ -102,6 +102,7 @@ export function worldBrief(g, focusText) {
     `세력: ${w.factions.map((f) => `${f.id}=${f.name}(평판 ${g.factions[f.id]})`).join(', ')}`,
     `NPC:\n${npcs}`,
     `NPC 사이 관계: ${npcRelationBrief(g)}`,
+    g.faction ? `플레이어 소속 진영: ${factionName(g, g.faction)}` : '',
     `플레이어: ${g.player.name} (${g.player.role}). 성격: ${g.player.personality}. 외모: ${g.player.appearance}. 배경: ${g.player.background}`,
     w.modules.stats ? `능력치: ${JSON.stringify(g.player.stats)} (최대 ${STAMINA}: ${g.player.statMax?.[STAMINA] ?? '없음'})` : '',
     w.modules.economy ? `소지금: ${g.player.money}${w.currency}, 소지품: ${g.player.inventory.join(', ') || '없음'}` : '',
@@ -146,6 +147,43 @@ function storyContext(g) {
   return `${g.story?.summary ? `지금까지의 줄거리 요약:\n${g.story.summary}\n\n` : ''}최근 진행:\n${recent}`;
 }
 
+const stageText = (g, affection) => {
+  const name = relationStage(g.world, affection);
+  return name ? ` (관계 단계: ${name})` : '';
+};
+const factionName = (g, id) => g.world.factions.find((f) => f.id === id)?.name ?? id;
+
+// 선택 필드 templates: 출력 형식과, 그대로 옮겨 적을 현재 상태 값을 AI에 준다.
+const TEMPLATE_LABELS = {
+  sceneHeader: '장면 헤더 (장면이 시작될 때 narration 맨 앞)',
+  missionCard: '임무 카드 (임무를 제시할 때)',
+  statusWindow: '상태창 (매 응답의 narration 맨 끝)',
+};
+function templateBlock(g) {
+  const t = g.world.templates;
+  const formats = Object.entries(TEMPLATE_LABELS).filter(([k]) => typeof t[k] === 'string')
+    .map(([k, label]) => `[${label}]\n${t[k]}`).join('\n\n');
+  const npcLine = (n) => {
+    const a = g.npcs[n.id].affection;
+    const stage = relationStage(g.world, a);
+    return `${n.name} ${a}${stage ? ` [${stage}]` : ''}`;
+  };
+  const values = [
+    `- 시간: ${timeLabel(g.time)} / 장소: ${placeName(g, g.location)}`,
+    `- 세력도: ${g.world.factions.map((f) => `${f.name} ${g.factions[f.id]}`).join(' | ')}`,
+    `- 소속 진영: ${g.faction ? factionName(g, g.faction) : '미정'}`,
+    `- 직책: ${g.player.role}`,
+    g.world.modules.stats ? `- 능력치: ${Object.entries(g.player.stats).map(([k, v]) => `${k} ${v}`).join(', ')}` : '',
+    `- 인물 호감도: ${g.world.npcs.map(npcLine).join(', ')}`,
+  ].filter(Boolean).join('\n');
+  return [
+    '출력 형식 규칙: narration 안에서 아래 형식을 그대로 쓰고 {…} 자리만 채운다.',
+    formats,
+    '상태창과 장면 헤더의 수치·시간·단계명은 아래 "현재 상태 값"을 그대로 옮겨 적는다. 수치를 임의로 계산하거나 바꾸지 않는다. 이번 행동으로 생기는 수치 변화는 JSON 필드로만 알린다.',
+    `현재 상태 값:\n${values}`,
+  ].join('\n\n');
+}
+
 export async function gmTurn(g, actionText, settings) {
   if (!settings.apiKey) return mockTurn(g, actionText);
   const system = [
@@ -153,7 +191,7 @@ export async function gmTurn(g, actionText, settings) {
     `묘사는 ${LENGTH_GUIDE[settings.responseLength] ?? LENGTH_GUIDE.normal} 쓴다. 플레이어의 성격을 묘사에 반영한다.`,
     RELATIONSHIP_RULE, g.world.modules.stats ? STATS_RULE : '', GOAL_RULE, ENDING_RULE,
     contentRule(settings), SAFETY_RULE,
-    worldBrief(g, actionText), turnSchema(g),
+    worldBrief(g, actionText), g.world.templates ? templateBlock(g) : '', turnSchema(g),
   ].filter(Boolean).join('\n\n');
   return callGemini(settings, 'story', system, `${storyContext(g)}\n\n플레이어 행동: ${actionText}`);
 }

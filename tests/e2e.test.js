@@ -108,10 +108,10 @@ test('[기준2,4] 설정에 키를 넣으면 AI가 응답하고, 키는 Gemini �
 });
 
 // ---------- 완료 기준 3: 테스트 모드 6종 ----------
-test('[기준3] API 키 없이 6개 프리셋에서 대화, 이동, 시간 넘기기가 된다', async () => {
+test('[기준3] API 키 없이 7개 프리셋에서 대화, 이동, 시간 넘기기가 된다', async () => {
   const { page, ctx, errors, requests } = await open();
   const count = await page.locator('#preset-list .card').count();
-  assert.equal(count, 6);
+  assert.equal(count, 7);
   for (let i = 0; i < count; i++) {
     await page.goto(base);
     await startPreset(page, i);
@@ -256,7 +256,7 @@ test('[기준10] 프리셋을 복사해서 수정할 수 있고 원본은 그대
   await page.locator('#preset-list .card').first().getByText('복사해서 수정').click();
   await page.click('#btn-editor-save');
   assert.equal(await page.locator('#world-list .card').count(), 1);
-  assert.equal(await page.locator('#preset-list .card').count(), 6);
+  assert.equal(await page.locator('#preset-list .card').count(), 7);
   await ctx.close();
 });
 
@@ -545,6 +545,71 @@ test('[예외] 한도 초과 뒤 API 키를 바꾸면 바로 다시 시도할 �
   await page.click('#action-form button');
   await page.waitForFunction(() => !document.querySelector('#action-input').disabled);
   assert.match(await logText(page), /새 키로 응답/);
+  await ctx.close();
+});
+
+// ---------- 선택 필드: startChoices, relationStages, templates ----------
+test('[선택필드] 종족전쟁은 오프닝 전에 진영 버튼을 보여주고, 고르면 패치가 적용된다', async () => {
+  const { page, ctx, errors } = await open();
+  await startPreset(page, 6);
+  const buttons = page.locator('#choices button');
+  assert.equal(await buttons.count(), 3);
+  assert.match(await buttons.first().textContent(), /솔렌 성왕국에 입대한다/);
+  assert.ok(await page.isDisabled('#action-input'), '선택 전에는 자유 입력을 막는다');
+  assert.ok(await page.isDisabled('[data-skip="60"]'));
+  assert.doesNotMatch(await logText(page), /이야기가 시작됩니다/);
+  await buttons.nth(1).click(); // 실바레스
+  assert.match(await logText(page), /실바레스 대수림에 입대한다.*이야기가 시작됩니다/s);
+  assert.match(await page.textContent('#g-time'), /실바레스 대수림 경계/);
+  assert.ok(!(await page.isDisabled('#action-input')));
+  await page.click('[data-tab=me]');
+  const me = await page.textContent('#tab-body');
+  assert.match(me, /신병 \[D급\]/);
+  assert.match(me, /소속: 실바레스 대수림/);
+  assert.match(me, /긴 귀와 은발/);
+  await page.click('[data-tab=people]');
+  assert.match(await page.textContent('#tab-body'), /엘윈 \(실바레스 대수림 숲 파수대장\) \[경계\].*호감 10/s);
+  await say(page, '파수대장에게 인사한다');
+  assert.match(await logText(page), /테스트 모드/);
+  // 새로고침해도 선택 결과가 유지된다
+  await page.reload();
+  await page.click('#btn-continue');
+  await page.click('[data-tab=me]');
+  assert.match(await page.textContent('#tab-body'), /소속: 실바레스 대수림/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('[선택필드] 선택 전에 새로고침해도 진영 버튼이 다시 나온다', async () => {
+  const { page, ctx } = await open();
+  await startPreset(page, 6);
+  await page.reload();
+  await page.click('#btn-continue');
+  assert.equal(await page.locator('#choices button').count(), 3);
+  assert.ok(await page.isDisabled('#action-input'));
+  await ctx.close();
+});
+
+test('[선택필드] 기존 프리셋은 진영 버튼 없이 바로 시작하고 단계명도 없다', async () => {
+  const { page, ctx } = await open();
+  await startPreset(page, 0);
+  assert.match(await logText(page), /이야기가 시작됩니다/);
+  assert.doesNotMatch(await page.textContent('#choices'), /입대한다/);
+  assert.ok(!(await page.isDisabled('#action-input')));
+  await page.click('[data-tab=people]');
+  assert.doesNotMatch(await page.textContent('#tab-body'), /\[경계\]|\[인정\]/);
+  await ctx.close();
+});
+
+test('[선택필드] API 키가 있으면 templates 형식과 현재 값이 AI 요청에 들어가고, AI 능력치 결정은 건너뛴다', async () => {
+  let statsCalls = 0;
+  const { page, ctx, requests } = await open({ settings: KEY, stats: () => { statsCalls++; return ok({ stats: {} }); }, gemini: () => ok({ narration: 'AI 응답' }) });
+  await startPreset(page, 6);
+  await page.locator('#choices button').first().click(); // 솔렌
+  await say(page, '막사를 둘러본다');
+  assert.equal(statsCalls, 0);
+  const body = requests.filter((r) => r.url.includes('generativelanguage')).at(-1).body;
+  for (const s of ['출력 형식 규칙', '현재 상태 값', '소속 진영: 솔렌 성왕국', '카엘 10 [경계]']) assert.ok(body.includes(s), s);
   await ctx.close();
 });
 
