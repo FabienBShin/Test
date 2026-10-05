@@ -21,6 +21,7 @@
       <h1>시뮬레이션 RP</h1>
       <div class="row">
         <button id="btn-continue" class="primary">이어하기</button>
+        <button id="btn-open-sessions">내 채팅</button>
         <button id="btn-open-slots">불러오기</button>
         <label class="btn">파일 불러오기<input type="file" id="file-import-save" accept=".json" hidden></label>
         <button id="btn-open-settings">설정</button>
@@ -35,6 +36,14 @@
       <label class="btn">세계관 파일 불러오기<input type="file" id="file-import-world" accept=".json" hidden></label>
     </div>
     <div id="world-list" class="cards"></div>
+  </section>
+
+  <!-- 채팅 목록: 같은 작품으로 만든 채팅방이 여러 개일 수 있다 -->
+  <section id="screen-sessions" class="screen" hidden>
+    <button class="back" data-goto="title">‹ 뒤로</button>
+    <h2 id="sessions-title">내 채팅</h2>
+    <div id="sessions-filter" class="row" hidden></div>
+    <div id="session-list" class="session-list"></div>
   </section>
 
   <!-- 캐릭터 설정 -->
@@ -74,9 +83,15 @@
         <div id="log" class="log" aria-live="polite"></div>
         <div id="status" class="status" hidden></div>
         <div id="choices" class="choices"></div>
+        <div id="suggest-panel" class="suggest" hidden></div>
+        <div class="row tools" id="composer-tools">
+          <button type="button" id="btn-suggest">추천 답변</button>
+          <button type="button" id="btn-continue-story">이어쓰기</button>
+        </div>
         <form id="action-form" class="action">
           <input id="action-input" placeholder="행동이나 대사를 자유롭게 입력" autocomplete="off" maxlength="500">
-          <button type="submit" class="primary">보내기</button>
+          <button type="submit" id="btn-send" class="primary">보내기</button>
+          <button type="button" id="btn-stop" class="danger-fill" hidden>중지</button>
         </form>
         <div class="row quick">
           <button data-skip="60">1시간 쉬기</button>
@@ -115,6 +130,8 @@
           <option value="short">짧게</option><option value="normal">보통</option><option value="long">길게</option>
         </select>
       </label>
+      <label class="check">응답을 실시간으로 표시 <input type="checkbox" name="stream" role="switch"></label>
+      <p class="muted small">끄면 응답이 완성된 뒤에 한 번에 나타납니다.</p>
       <label class="check">성인 모드 <input type="checkbox" name="adultMode" role="switch"></label>
       <p class="muted small">안전 필터는 최하 단계로 요청합니다. 미성년자가 등장하는 성적 콘텐츠는 어떤 모드에서도 차단됩니다.</p>
       <div class="row">

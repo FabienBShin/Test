@@ -253,6 +253,52 @@ export function applyResult(g, r) {
 
 const arr = (v) => (Array.isArray(v) ? v : []);
 
+// ---------- 체크포인트: 한 턴을 시작하기 전의 상태 ----------
+// 마지막 답변 다시 생성, 마지막 메시지 수정은 "그 턴이 없었던 상태"로 되돌린 뒤 다시 실행하는 방식이다.
+// 한 턴이 관계, 수치, 시간, 플래그, 세력, 퀘스트, 요약 위치까지 바꾸므로 하나씩 되돌리지 않고 통째로 보관한다.
+// 최신 턴 하나만 보관한다(마지막 메시지만 고칠 수 있다).
+const NOT_STATE = new Set(['world', 'log', 'checkpoint', 'id', 'title', 'createdAt', 'updatedAt']);
+
+// turn: { kind: 'act' | 'continue' | 'skip', text?, skipMinutes? }
+export function makeCheckpoint(g, turn) {
+  const state = {};
+  for (const [k, v] of Object.entries(g)) if (!NOT_STATE.has(k)) state[k] = structuredClone(v);
+  return { turn: { kind: turn.kind, text: turn.text ?? '', skipMinutes: turn.skipMinutes ?? null }, logLength: g.log.length, state };
+}
+
+// 보관한 상태로 되돌리고 대화 기록도 그 시점까지 자른다. 보관한 게 없으면 false.
+export function restoreCheckpoint(g, cp = g.checkpoint) {
+  if (!cp?.state || !Number.isInteger(cp.logLength)) return false;
+  for (const k of Object.keys(g)) if (!NOT_STATE.has(k) && !(k in cp.state)) delete g[k];
+  Object.assign(g, structuredClone(cp.state));
+  g.log.length = Math.min(g.log.length, cp.logLength);
+  return true;
+}
+
+// 다시 생성이나 수정이 실패했을 때 원래 답변으로 돌아가기 위한 전체 복사본(대화 기록과 체크포인트 포함)
+export function snapshotAll(g) {
+  const { world, ...rest } = g; // 작품 정보는 바뀌지 않으므로 뺀다
+  return structuredClone(rest);
+}
+
+export function applySnapshot(g, snap) {
+  for (const k of Object.keys(g)) if (k !== 'world' && !(k in snap)) delete g[k];
+  Object.assign(g, structuredClone(snap));
+}
+
+// 마지막 AI 답변을 다시 만들 수 있나: 마지막 턴이 입력(act)이나 이어쓰기(continue)이고 답변이 남아 있을 때.
+// 시간 넘기기(skip)는 다시 만들 의미가 없어 제외한다.
+export function canRegenerate(g) {
+  const cp = g.checkpoint;
+  return !!cp && !g.pendingStart && (cp.turn.kind === 'act' || cp.turn.kind === 'continue') && g.log.length > cp.logLength;
+}
+
+// 마지막 플레이어 메시지를 고칠 수 있나: 마지막 턴이 입력(act)이고 그 메시지가 남아 있을 때.
+export function canEditLast(g) {
+  const cp = g.checkpoint;
+  return !!cp && !g.pendingStart && cp.turn.kind === 'act' && g.log[cp.logLength]?.role === 'player';
+}
+
 // 이전 버전 세이브에 없는 항목을 채운다.
 export function migrate(g) {
   if (!g || typeof g !== 'object' || !g.world || !g.player) return g;

@@ -45,6 +45,10 @@ async function open({ width = 390, height = 800, gemini, stats, settings, storag
     const res = isStats ? (stats ? await stats(body, model) : ok({ stats: {} }))
       : gemini ? await gemini(body, model) : ok({ narration: '기본 응답', choices: [] });
     if (res === 'network') return route.abort();
+    // 앱은 스트리밍(streamGenerateContent)으로 요청한다. 성공 JSON은 SSE 이벤트 하나로 감싸 돌려준다. 오류 응답은 그대로.
+    if (req.url().includes('streamGenerateContent') && res.status === 200 && res.contentType === 'application/json') {
+      return route.fulfill({ ...res, contentType: 'text/event-stream', body: `data: ${res.body}\n\n` });
+    }
     return route.fulfill(res);
   });
   if (settings) await ctx.addInitScript((s) => localStorage.setItem('rp.settings', JSON.stringify(s)), settings);
@@ -61,9 +65,14 @@ async function presetIndex(id) {
   return PRESETS.findIndex((p) => p.id === id);
 }
 async function startPreset(page, index = 0, custom = {}) {
-  await page.locator('#preset-list .card').nth(index).getByText('플레이').click();
+  await page.locator('#preset-list .card').nth(index).getByText('새 채팅').click();
   for (const [k, v] of Object.entries(custom)) await page.fill(`#setup-form [name=${k}]`, v);
   await page.click('text=게임 시작');
+  await page.waitForSelector('#screen-game:not([hidden])');
+}
+// 이어하기: 저장소에서 읽어 오는 동안 기다린다
+async function resume(page) {
+  await page.click('#btn-continue');
   await page.waitForSelector('#screen-game:not([hidden])');
 }
 async function say(page, text) {
@@ -79,7 +88,7 @@ for (const width of [390, 1280]) {
   test(`[기준1] ${width}px에서 모든 화면에 가로 스크롤이 없다`, async () => {
     const { page, ctx, errors } = await open({ width });
     assert.ok(await noHScroll(page), '타이틀');
-    await page.locator('#preset-list .card').first().getByText('플레이').click();
+    await page.locator('#preset-list .card').first().getByText('새 채팅').click();
     assert.ok(await noHScroll(page), '캐릭터 설정');
     await page.click('text=게임 시작');
     for (const tab of ['me', 'people', 'map', 'bag', 'quest', 'world']) {
@@ -255,7 +264,7 @@ test('[기준10] 한 줄 설명으로 AI가 세계관을 만들고, 에디터에
   await page.fill('#editor-json', JSON.stringify(json));
   await page.click('#btn-editor-save');
   assert.match(await page.textContent('#world-list'), /스팀펑크 탐정 \(수정됨\)/);
-  await page.locator('#world-list .card').first().getByText('플레이').click();
+  await page.locator('#world-list .card').first().getByText('새 채팅').click();
   await page.click('text=게임 시작');
   await page.waitForSelector('#screen-game:not([hidden])'); // 키가 있으면 AI 능력치 결정을 기다린다
   assert.match(await page.textContent('#g-world'), /수정됨/);
@@ -278,16 +287,19 @@ test('[기준11] 새로고침 후 이어하기, 슬롯 저장과 불러오기', 
   await startPreset(page, 0, { name: '저장테스트' });
   await say(page, '첫 행동');
   await page.reload();
-  await page.click('#btn-continue');
+  await resume(page);
   assert.match(await logText(page), /첫 행동/);
   await page.click('#btn-save');
-  assert.equal(await page.locator('#slot-list .slot').count(), 5);
+  await page.waitForFunction(() => document.querySelectorAll('#slot-list .slot').length === 5);
   await page.locator('#slot-list .slot').nth(2).getByText('저장').click();
+  await page.waitForFunction(() => /슬롯 3에 저장/.test(document.querySelector('#toast')?.textContent ?? ''));
   await say(page, '슬롯 저장 뒤 행동');
   await page.click('#btn-to-title');
   await page.click('#btn-open-slots');
+  await page.waitForFunction(() => /불러올/.test(document.querySelector('#slots-title')?.textContent ?? '') && document.querySelector('#dlg-slots')?.open);
   assert.match(await page.textContent('#slot-list'), /3\. .*저장테스트/);
   await page.locator('#slot-list .slot').nth(2).getByText('불러오기').click();
+  await page.waitForSelector('#screen-game:not([hidden])');
   const log = await logText(page);
   assert.match(log, /첫 행동/);
   assert.doesNotMatch(log, /슬롯 저장 뒤 행동/);
@@ -481,7 +493,7 @@ test('[예외] 시간 설정이 잘못된 세계관은 저장되지 않거나, �
   await page.click('#btn-editor-save');
   const rejected = (await page.textContent('#editor-error')).length > 0;
   if (!rejected) {
-    await page.locator('#world-list .card').first().getByText('플레이').click();
+    await page.locator('#world-list .card').first().getByText('새 채팅').click();
     await page.click('text=게임 시작');
     await say(page, 'a');
     assert.match(await page.textContent('#g-time'), /^\d+일차 \d\d:\d\d/);
@@ -496,7 +508,7 @@ test('[예외] NPC가 없는 세계관도 하루를 넘길 수 있다', async ()
   w.npcs = [];
   await page.fill('#editor-json', JSON.stringify(w));
   await page.click('#btn-editor-save');
-  await page.locator('#world-list .card').first().getByText('플레이').click();
+  await page.locator('#world-list .card').first().getByText('새 채팅').click();
   await page.click('text=게임 시작');
   await page.click('[data-skip=sleep]');
   await page.waitForFunction(() => !document.querySelector('#action-input').disabled);
@@ -509,7 +521,7 @@ test('[예외] NPC가 없는 세계관도 하루를 넘길 수 있다', async ()
 test('[예외] 브라우저 저장 공간이 가득 차면 저장 실패를 알린다', async () => {
   const { page, ctx } = await open();
   await startPreset(page, 0);
-  await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); }; });
+  await page.evaluate(() => { IDBObjectStore.prototype.put = () => { throw new DOMException('full', 'QuotaExceededError'); }; });
   await say(page, '저장 안 되는 행동');
   const shown = await page.evaluate(() => document.querySelector('#toast').hidden === false && /저장/.test(document.querySelector('#toast').textContent));
   assert.ok(shown, '저장 실패 안내가 보여야 한다');
@@ -585,7 +597,7 @@ test('[선택필드] 종족전쟁은 오프닝 전에 진영 버튼을 보여주
   assert.match(await logText(page), /테스트 모드/);
   // 새로고침해도 선택 결과가 유지된다
   await page.reload();
-  await page.click('#btn-continue');
+  await resume(page);
   await page.click('[data-tab=me]');
   assert.match(await page.textContent('#tab-body'), /소속: 실바레스 대수림/);
   assert.deepEqual(errors, []);
@@ -596,7 +608,7 @@ test('[선택필드] 선택 전에 새로고침해도 진영 버튼이 다시 �
   const { page, ctx } = await open();
   await startPreset(page, 6);
   await page.reload();
-  await page.click('#btn-continue');
+  await resume(page);
   assert.equal(await page.locator('#choices button').count(), 3);
   assert.ok(await page.isDisabled('#action-input'));
   await ctx.close();
@@ -682,7 +694,7 @@ test('[결정6] 예전 4구간 일과로 만든 세계관 파일도 불러와서
   const { page, ctx, errors } = await open();
   await page.setInputFiles('#file-import-world', file);
   await page.waitForFunction(() => document.querySelectorAll('#world-list .card').length === 1);
-  await page.locator('#world-list .card').first().getByText('플레이').click();
+  await page.locator('#world-list .card').first().getByText('새 채팅').click();
   await page.click('text=게임 시작');
   await page.click('[data-tab=people]');
   assert.match(await page.textContent('#tab-body'), /📍 모험가 길드/);
@@ -756,7 +768,7 @@ async function gameWithMarkdown() {
 
 test('[렌더러] AI 응답의 서식이 헤더·지문·대사·상태창으로 보이고, HTML은 글자로만 보인다', async () => {
   const { page, ctx, errors } = await open({ storage: { 'rp.autosave': await gameWithMarkdown() } });
-  await page.click('#btn-continue');
+  await resume(page);
   const body = page.locator('.msg.gm .gm-body').last();
   assert.match(await body.locator('.quote').textContent(), /장소: 모래해변.*3일차 \| 14:20/s);
   assert.equal(await body.locator('.dialogue .who').first().textContent(), '서하린');
@@ -784,7 +796,7 @@ test('[렌더러] 굵게·기울임·코드·대사 안의 HTML도 요소가 되
     '```', '<img src=x onerror=window.__xss=5>', '```', '', '> <img src=x onerror=window.__xss=6>',
   ].join('\n') });
   const { page, ctx, errors } = await open({ storage: { 'rp.autosave': g } });
-  await page.click('#btn-continue');
+  await resume(page);
   await page.waitForTimeout(300);
   assert.equal(await page.evaluate(() => window.__xss), undefined, '실행된 스크립트가 없다');
   assert.equal(await page.locator('#log img, #log script, #log b').count(), 0, 'HTML 요소가 만들어지지 않는다');
@@ -801,7 +813,7 @@ test('[렌더러] 생존 수치가 20% 아래면 게이지가 위험색으로 �
   const g = S.newGame(PRESETS.find((p) => p.id === 'island'), {});
   Object.assign(g.meters, { satiety: 10, hydration: 50, condition: 19.9 });
   const { page, ctx } = await open({ storage: { 'rp.autosave': g } });
-  await page.click('#btn-continue');
+  await resume(page);
   await page.click('[data-tab=me]');
   const bars = page.locator('#tab-body .gauges .bar');
   assert.deepEqual(await bars.evaluateAll((els) => els.map((e) => e.classList.contains('danger'))), [true, false, true]);
@@ -813,7 +825,7 @@ test('[렌더러] 생존 수치가 20% 아래면 게이지가 위험색으로 �
 
 test('[표시설정] 소설형으로 바꾸면 지문이 말풍선에서 빠지고, 글자 크기·줄 간격과 함께 새로고침 후에도 유지된다', async () => {
   const { page, ctx, errors } = await open({ storage: { 'rp.autosave': await gameWithMarkdown() } });
-  await page.click('#btn-continue');
+  await resume(page);
   assert.ok(await page.locator('.gm-body.view-bubble .narration.bubble').count() > 0, '기본은 채팅형');
   await page.click('#btn-display');
   assert.equal(await page.getAttribute('[data-mode=bubble]', 'aria-checked'), 'true');
@@ -832,7 +844,7 @@ test('[표시설정] 소설형으로 바꾸면 지문이 말풍선에서 빠지�
   assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('rp.display'))), { viewMode: 'plain', fontSizeLevel: 5, lineHeightLevel: 1 });
   await page.reload();
   assert.deepEqual(await vars(), ['1.25rem', '1.3'], '새로고침 후에도 크기 유지');
-  await page.click('#btn-continue');
+  await resume(page);
   assert.equal(await page.locator('#log .narration.bubble').count(), 0, '새로고침 후에도 소설형');
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -897,7 +909,7 @@ test('[무인도] 생존 수치와 오프닝은 저장하고 이어해도 그대
   await page.click('[data-tab=me]');
   const before = await page.textContent('#tab-body .gauges');
   await page.reload();
-  await page.click('#btn-continue');
+  await resume(page);
   await page.click('[data-tab=me]');
   assert.equal(await page.textContent('#tab-body .gauges'), before);
   assert.equal(await page.locator('.msg.gm').count(), 1, '오프닝은 한 번만');
@@ -952,9 +964,346 @@ test('[에디터] 새 프리셋을 복사해 저장할 수 있고, 깨진 생존
   await page.click('#btn-editor-save');
   assert.equal(await page.locator('#world-list .card').count(), 1);
   // 복사본으로 시작해도 수치가 있다
-  await page.locator('#world-list .card').first().getByText('플레이').click();
+  await page.locator('#world-list .card').first().getByText('새 채팅').click();
   await page.click('text=게임 시작');
   await page.waitForSelector('#screen-game:not([hidden])');
   assert.equal(await page.locator('#tab-body .gauges > div').count(), 3);
+  await ctx.close();
+});
+
+// ---------- 채팅방 · 다시 생성 · 수정 · 이어쓰기 · 추천 답변 · 스트리밍 ----------
+const isSuggest = (body) => body.systemInstruction.parts[0].text.includes('제안하는 도우미');
+const lastUserText = (body) => body.contents.at(-1).parts[0].text;
+// 호출 순서대로 다른 응답을 주는 가짜 서버
+const sequence = (...texts) => {
+  let n = 0;
+  return (body) => (isSuggest(body) ? ok({ suggestions: ['"안녕하세요."', '주변을 살핀다', '문을 두드린다'] }) : ok({ narration: texts[Math.min(n++, texts.length - 1)], choices: ['다음'] }));
+};
+const msgCount = (page, role) => page.locator(`#log .msg.${role}`).count();
+
+test('[채팅방] 같은 작품으로 채팅을 여러 개 만들고, 목록에서 열기·이름 바꾸기·삭제가 된다', async () => {
+  const { page, ctx, errors } = await open({ settings: KEY, gemini: () => ok({ narration: '응답', choices: [] }) });
+  await startPreset(page, 0, { name: '첫째' });
+  await say(page, '첫 번째 방 행동');
+  await page.click('#btn-to-title');
+  await startPreset(page, 0, { name: '둘째' });
+  await say(page, '두 번째 방 행동');
+  await page.click('#btn-to-title');
+  await startPreset(page, 1, { name: '다른작품' });
+  await page.click('#btn-to-title');
+  assert.match(await page.locator('#preset-list .card').first().textContent(), /채팅 2개/);
+  // 이어하기는 가장 최근 채팅
+  await resume(page);
+  assert.match(await page.textContent('#tab-body'), /다른작품/);
+  await page.click('#btn-to-title');
+  // 목록: 전체 3개, 작품 칩으로 걸러 보면 2개
+  await page.click('#btn-open-sessions');
+  assert.equal(await page.locator('#session-list .session').count(), 3);
+  await page.click('#btn-back-sessions').catch(() => {});
+  await page.reload();
+  await page.click('#btn-open-sessions');
+  assert.equal(await page.locator('#session-list .session').count(), 3, '새로고침 뒤에도 남는다');
+  // 두 번째 채팅을 열면 그 방의 기록만 보인다
+  const target = page.locator('#session-list .session', { hasText: '둘째' }).first();
+  await target.locator('.session-main').click();
+  await page.waitForSelector('#screen-game:not([hidden])');
+  assert.match(await logText(page), /두 번째 방 행동/);
+  assert.doesNotMatch(await logText(page), /첫 번째 방 행동/);
+  await page.click('#btn-to-title');
+  // 이름 바꾸기
+  await page.click('#btn-open-sessions');
+  page.once('dialog', (d) => d.accept('내 이름'));
+  await page.locator('#session-list .session').first().getByText('이름 변경').click();
+  await page.waitForFunction(() => /내 이름/.test(document.querySelector('#session-list')?.textContent ?? ''));
+  // 삭제: 취소하면 그대로, 확인하면 사라진다
+  let asked = '';
+  page.once('dialog', (d) => { asked = d.message(); d.dismiss(); });
+  await page.locator('#session-list .session').first().getByText('삭제').click();
+  await page.waitForTimeout(400);
+  assert.match(asked, /삭제할까요/, '삭제 전에 묻는다');
+  assert.equal(await page.locator('#session-list .session').count(), 3);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#session-list .session').first().getByText('삭제').click();
+  await page.waitForFunction(() => document.querySelectorAll('#session-list .session').length === 2);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('[채팅방] 작품 카드의 채팅 수를 누르면 그 작품의 채팅만 걸러 보인다', async () => {
+  const { page, ctx } = await open();
+  await startPreset(page, 0); await page.click('#btn-to-title');
+  await startPreset(page, 0); await page.click('#btn-to-title');
+  await startPreset(page, 1); await page.click('#btn-to-title');
+  await page.locator('#preset-list .card').first().getByText(/채팅 2개/).click();
+  await page.waitForSelector('#screen-sessions:not([hidden])');
+  assert.equal(await page.locator('#session-list .session').count(), 2);
+  await page.getByText('전체 채팅 보기').click();
+  assert.equal(await page.locator('#session-list .session').count(), 3);
+  await ctx.close();
+});
+
+test('[채팅방] IndexedDB를 쓸 수 없어도 localStorage로 저장되고 이어하기가 된다', async () => {
+  const { page, ctx } = await open();
+  await page.addInitScript(() => { Object.defineProperty(window, 'indexedDB', { value: undefined, configurable: true }); });
+  await page.reload();
+  await startPreset(page, 0, { name: '대체저장' });
+  await say(page, '대체 저장 행동');
+  await page.reload();
+  await resume(page);
+  assert.match(await logText(page), /대체 저장 행동/);
+  assert.ok(await page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith('rp.s.'))));
+  await ctx.close();
+});
+
+test('[채팅방] 예전 자동 저장은 채팅 하나로 옮겨지고, 파일 가져오기는 항상 새 채팅이 된다', async () => {
+  const g = await gameWithMarkdown();
+  const { page, ctx } = await open({ storage: { 'rp.autosave': g } });
+  await page.click('#btn-open-sessions');
+  assert.equal(await page.locator('#session-list .session').count(), 1);
+  assert.equal(await page.evaluate(() => localStorage.getItem('rp.autosave')), null, '옮긴 뒤 예전 항목은 지워진다');
+  await ctx.close();
+});
+
+test('[다시 생성] 확인하면 마지막 답변만 새로 만들고, 취소하면 그대로다', async () => {
+  const { page, ctx, requests } = await open({ settings: KEY, gemini: sequence('첫 답변', '다시 만든 답변') });
+  await startPreset(page, 0);
+  await say(page, '인사한다');
+  assert.equal(await page.locator('#log .msg-actions .link-btn', { hasText: '다시 생성' }).count(), 1);
+  page.once('dialog', (d) => d.dismiss());
+  await page.getByText('다시 생성').click();
+  assert.match(await logText(page), /첫 답변/);
+  page.once('dialog', (d) => d.accept());
+  await page.getByText('다시 생성').click();
+  await page.waitForFunction(() => /다시 만든 답변/.test(document.querySelector('#log').textContent) && !document.querySelector('#action-input').disabled);
+  const text = await logText(page);
+  assert.doesNotMatch(text, /첫 답변/);
+  assert.equal(await msgCount(page, 'player'), 1, '플레이어 말풍선이 늘어나지 않는다');
+  const story = requests.filter((r) => r.body && !isSuggest(JSON.parse(r.body)) && /인사한다/.test(r.body) && r.url.includes('generativelanguage'));
+  assert.ok(story.length >= 2, '같은 입력으로 다시 요청');
+  await ctx.close();
+});
+
+test('[다시 생성] 실패하면 원래 답변이 그대로 돌아온다', async () => {
+  let n = 0;
+  const { page, ctx } = await open({ settings: KEY, gemini: () => (n++ === 0 ? ok({ narration: '살아남을 답변', choices: ['x'] }) : { status: 500, contentType: 'application/json', body: '{"error":{"message":"boom"}}' }) });
+  await startPreset(page, 0);
+  await say(page, '인사한다');
+  page.once('dialog', (d) => d.accept());
+  await page.getByText('다시 생성').click();
+  await page.waitForFunction(() => !document.querySelector('#action-input').disabled && !document.querySelector('#log .typing'));
+  const text = await logText(page);
+  assert.match(text, /살아남을 답변/, '원래 답변 복구');
+  assert.equal(await msgCount(page, 'player'), 1);
+  assert.equal(await page.locator('#log .link-btn', { hasText: '다시 생성' }).count(), 1, '다시 시도할 수 있다');
+  await ctx.close();
+});
+
+test('[수정] 마지막 플레이어 메시지를 고치면 그 뒤가 새로 진행된다. 취소·Esc는 그대로', async () => {
+  const { page, ctx, requests } = await open({ settings: KEY, gemini: sequence('첫 답변', '고친 뒤 답변') });
+  await startPreset(page, 0);
+  await say(page, '틀린 말');
+  await page.getByText('수정', { exact: true }).click();
+  assert.equal(await page.locator('#log .edit-box textarea').inputValue(), '틀린 말');
+  await page.locator('#log .edit-box textarea').press('Escape');
+  assert.equal(await page.locator('#log .edit-box').count(), 0);
+  assert.match(await logText(page), /틀린 말/);
+  await page.getByText('수정', { exact: true }).click();
+  await page.locator('#log .edit-box textarea').fill('고친 말');
+  await page.locator('#log .edit-box textarea').press('Control+Enter');
+  await page.waitForFunction(() => /고친 뒤 답변/.test(document.querySelector('#log').textContent) && !document.querySelector('#action-input').disabled);
+  const text = await logText(page);
+  assert.match(text, /고친 말/);
+  assert.doesNotMatch(text, /틀린 말|첫 답변/);
+  assert.equal(await msgCount(page, 'player'), 1);
+  assert.ok(requests.some((r) => r.body?.includes('고친 말')));
+  await ctx.close();
+});
+
+test('[수정] 비워서 저장할 수 없고, 실패하면 원래 메시지와 답변이 돌아온다', async () => {
+  let n = 0;
+  const { page, ctx } = await open({ settings: KEY, gemini: () => (n++ === 0 ? ok({ narration: '원래 답변', choices: ['x'] }) : { status: 500, contentType: 'application/json', body: '{"error":{"message":"boom"}}' }) });
+  await startPreset(page, 0);
+  await say(page, '원래 말');
+  await page.getByText('수정', { exact: true }).click();
+  await page.locator('#log .edit-box textarea').fill('   ');
+  await page.getByText('저장하고 다시 진행').click();
+  assert.equal(await page.locator('#log .edit-box').count(), 1, '빈 내용은 저장되지 않는다');
+  await page.locator('#log .edit-box textarea').fill('바꾼 말');
+  await page.getByText('저장하고 다시 진행').click();
+  await page.waitForFunction(() => !document.querySelector('#action-input').disabled && !document.querySelector('#log .typing'));
+  const text = await logText(page);
+  assert.match(text, /원래 말/);
+  assert.match(text, /원래 답변/);
+  assert.doesNotMatch(text, /바꾼 말/);
+  await ctx.close();
+});
+
+test('[이어쓰기] 플레이어 말풍선 없이 이야기가 이어진다', async () => {
+  const { page, ctx, requests } = await open({ settings: KEY, gemini: sequence('첫 장면', '이어진 장면') });
+  await startPreset(page, 0);
+  await say(page, '문을 연다');
+  const before = await msgCount(page, 'player');
+  await page.click('#btn-continue-story');
+  await page.waitForFunction(() => /이어진 장면/.test(document.querySelector('#log').textContent) && !document.querySelector('#action-input').disabled);
+  assert.equal(await msgCount(page, 'player'), before);
+  assert.ok(requests.some((r) => r.body?.includes('이어쓰기')));
+  // 이어쓴 답변도 다시 생성할 수 있다
+  assert.equal(await page.locator('#log .link-btn', { hasText: '다시 생성' }).count(), 1);
+  assert.equal(await page.locator('#log .link-btn', { hasText: /^수정$/ }).count(), 0, '입력 없는 턴에는 수정 버튼이 없다');
+  await ctx.close();
+});
+
+test('[추천 답변] 후보 3개가 나오고, 고르면 입력창에 채워진다', async () => {
+  const { page, ctx } = await open({ settings: KEY, gemini: sequence('장면') });
+  await startPreset(page, 0);
+  await say(page, '둘러본다');
+  await page.click('#btn-suggest');
+  await page.waitForSelector('#suggest-panel [role=option]');
+  assert.equal(await page.locator('#suggest-panel [role=option]').count(), 3);
+  await page.locator('#suggest-panel [role=option]').nth(1).click();
+  assert.equal(await page.inputValue('#action-input'), '주변을 살핀다');
+  assert.ok(await page.locator('#suggest-panel').isHidden());
+  assert.equal(await msgCount(page, 'player'), 1, '고르기만 해서는 보내지 않는다');
+  await ctx.close();
+});
+
+test('[추천 답변] 실패하면 오류를 보여 주고 게임은 계속된다. 키가 없으면 예시 후보', async () => {
+  const bad = await open({ settings: KEY, gemini: (body) => (isSuggest(body) ? ok({ suggestions: [] }) : ok({ narration: '장면', choices: [] })) });
+  await startPreset(bad.page, 0);
+  await bad.page.click('#btn-suggest');
+  await bad.page.waitForSelector('#suggest-panel .error');
+  await bad.page.locator('#suggest-panel').getByText('닫기').click();
+  assert.ok(await bad.page.locator('#suggest-panel').isHidden());
+  await say(bad.page, '계속');
+  assert.match(await logText(bad.page), /장면/);
+  await bad.ctx.close();
+  const mock = await open();
+  await startPreset(mock.page, 0);
+  await mock.page.click('#btn-suggest');
+  await mock.page.waitForSelector('#suggest-panel [role=option]');
+  assert.ok(await mock.page.locator('#suggest-panel [role=option]').count() >= 1);
+  await mock.ctx.close();
+});
+
+// 스트리밍: 페이지 안의 fetch를 바꿔서, 테스트가 조각을 하나씩 흘려 보낸다
+async function withLiveStream(page) {
+  await page.evaluate(() => {
+    const realFetch = window.fetch;
+    window.__live = null;
+    window.fetch = (url, init) => {
+      if (!String(url).includes('streamGenerateContent')) return realFetch(url, init);
+      const enc = new TextEncoder();
+      let ctl;
+      const stream = new ReadableStream({ start(c) { ctl = c; } });
+      const abortErr = () => new DOMException('aborted', 'AbortError');
+      init?.signal?.addEventListener('abort', () => { try { ctl.error(abortErr()); } catch { /* 이미 닫힘 */ } });
+      window.__live = {
+        push: (jsonText) => ctl.enqueue(enc.encode(`data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: jsonText }] } }] })}\n\n`)),
+        finish: () => ctl.close(),
+      };
+      return Promise.resolve(new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } }));
+    };
+  });
+}
+
+test('[스트리밍] 글이 오는 대로 보이고, 끝나면 확정된다', async () => {
+  const { page, ctx, errors } = await open({ settings: KEY });
+  await startPreset(page, 0);
+  await withLiveStream(page);
+  await page.fill('#action-input', '살핀다');
+  await page.click('#btn-send');
+  await page.waitForFunction(() => window.__live);
+  assert.equal(await page.locator('#log .draft .typing').count(), 1, '글이 오기 전에는 입력 중 표시');
+  assert.ok(await page.locator('#btn-stop').isVisible());
+  assert.ok(await page.locator('#btn-send').isHidden());
+  assert.ok(await page.locator('#action-input').isDisabled());
+  await page.evaluate(() => window.__live.push('{"narration":"바람이 불'));
+  await page.waitForFunction(() => /바람이 불/.test(document.querySelector('#log .draft')?.textContent ?? ''));
+  assert.equal(await page.locator('#log .draft .typing').count(), 0);
+  await page.evaluate(() => window.__live.push('었다.","choices":["가","나"],"minutes":5}'));
+  await page.evaluate(() => window.__live.finish());
+  await page.waitForFunction(() => !document.querySelector('#action-input').disabled);
+  assert.equal(await page.locator('#log .draft').count(), 0);
+  assert.match(await logText(page), /바람이 불었다\./);
+  assert.deepEqual(await page.locator('#choices button').allTextContents(), ['가', '나']);
+  assert.ok(await page.locator('#btn-stop').isHidden());
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('[스트리밍] 중지하면 이번 입력이 취소되고 입력창에 되돌아온다', async () => {
+  const { page, ctx, errors } = await open({ settings: KEY });
+  await startPreset(page, 0);
+  await withLiveStream(page);
+  const logBefore = await logText(page);
+  await page.fill('#action-input', '취소할 행동');
+  await page.click('#btn-send');
+  await page.waitForFunction(() => window.__live);
+  await page.evaluate(() => window.__live.push('{"narration":"반쯤 온 글'));
+  await page.waitForFunction(() => /반쯤 온 글/.test(document.querySelector('#log .draft')?.textContent ?? ''));
+  await page.click('#btn-stop');
+  await page.waitForFunction(() => !document.querySelector('#action-input').disabled);
+  assert.equal(await logText(page), logBefore, '말풍선도 반쯤 온 글도 남지 않는다');
+  assert.equal(await page.inputValue('#action-input'), '취소할 행동');
+  assert.equal(await page.locator('#log .msg.error').count(), 0, '중지는 오류가 아니다');
+  await page.reload();
+  await resume(page);
+  assert.doesNotMatch(await logText(page), /취소할 행동|반쯤/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('[스트리밍] 설정에서 끄면 한 번에 받는 방식으로 요청한다', async () => {
+  const on = await open({ settings: KEY, gemini: () => ok({ narration: '응답', choices: [] }) });
+  await startPreset(on.page, 0);
+  await say(on.page, '가');
+  assert.ok(on.requests.some((r) => r.url.includes(':streamGenerateContent')));
+  await on.ctx.close();
+  const off = await open({ settings: { ...KEY, stream: false }, gemini: () => ok({ narration: '응답', choices: [] }) });
+  await startPreset(off.page, 0);
+  await say(off.page, '가');
+  const ai = off.requests.filter((r) => r.url.includes('generativelanguage'));
+  assert.ok(ai.length > 0 && ai.every((r) => !r.url.includes('streamGenerateContent') && r.url.includes(':generateContent')));
+  assert.match(await logText(off.page), /응답/);
+  await off.ctx.close();
+});
+
+test('[채팅방] 모바일에서 채팅 목록·수정창·추천 패널에 가로 스크롤이 없다', async () => {
+  const { page, ctx } = await open({ width: 360, settings: KEY, gemini: sequence('아주 긴 응답 '.repeat(40)) });
+  await startPreset(page, 0);
+  await say(page, '긴 입력 '.repeat(30));
+  await page.getByText('수정', { exact: true }).click();
+  assert.ok(await noHScroll(page), '수정창');
+  await page.locator('#log .edit-box textarea').press('Escape');
+  await page.click('#btn-suggest');
+  await page.waitForSelector('#suggest-panel [role=option]');
+  assert.ok(await noHScroll(page), '추천 패널');
+  await page.click('#btn-to-title');
+  await page.click('#btn-open-sessions');
+  assert.ok(await noHScroll(page), '채팅 목록');
+  await ctx.close();
+});
+
+test('[저장] 한 턴의 결과가 저장소에 들어간 뒤에야 입력창이 풀린다', async () => {
+  const { page, ctx } = await open({ settings: KEY, gemini: () => ok({ narration: '저장순서응답', choices: [] }) });
+  await startPreset(page, 0);
+  await page.evaluate(() => {
+    window.__ev = [];
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (v, k) {
+      window.__ev.push(this.name === 'sessions' && JSON.stringify(v).includes('저장순서응답') ? 'put' : 'other');
+      return put.call(this, v, k);
+    };
+    const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'disabled');
+    Object.defineProperty(HTMLInputElement.prototype, 'disabled', {
+      ...d, set(v) { if (this.id === 'action-input' && !v) window.__ev.push('unlock'); d.set.call(this, v); },
+    });
+  });
+  await say(page, '순서 확인');
+  const ev = await page.evaluate(() => window.__ev);
+  const firstPut = ev.indexOf('put');
+  assert.ok(firstPut >= 0, '결과가 저장됐다');
+  assert.ok(!ev.slice(0, firstPut).includes('unlock'), `저장 전에 입력이 풀렸다: ${ev.join(',')}`);
+  assert.ok(ev.includes('unlock'));
   await ctx.close();
 });
