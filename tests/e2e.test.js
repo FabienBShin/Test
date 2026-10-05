@@ -510,9 +510,11 @@ test('[예외] NPC가 없는 세계관도 하루를 넘길 수 있다', async ()
   await page.click('#btn-editor-save');
   await page.locator('#world-list .card').first().getByText('새 채팅').click();
   await page.click('text=게임 시작');
-  await page.click('[data-skip=sleep]');
-  await page.waitForFunction(() => !document.querySelector('#action-input').disabled);
-  assert.match(await page.textContent('#g-time'), /2일차/);
+  for (let i = 0; i < 2; i++) { // 시작 시각에서 8시간 + 16시간 = 하루가 지난다
+    await page.click('[data-skip=sleep]');
+    await page.waitForFunction(() => !document.querySelector('#action-input').disabled);
+  }
+  assert.match(await page.textContent('#g-time'), /2일차 08:00/);
   assert.doesNotMatch(await logText(page), /만들지 못했습니다/);
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -1333,5 +1335,15 @@ test('[에디터] AI 생성 입력칸에서 Enter를 눌러도 에디터가 닫�
   assert.ok(await page.locator('#dlg-editor').evaluate((d) => d.open));
   await page.click('#btn-editor-cancel');
   assert.ok(!(await page.locator('#dlg-editor').evaluate((d) => d.open)));
+  await ctx.close();
+});
+
+test('[수면] 시작 시각(아침)에 "다음 날 아침까지 자기"를 눌러도 하루 종일 자지 않는다', async () => {
+  const { page, ctx } = await open();
+  await startPreset(page, 0);
+  assert.match(await page.textContent('#g-time'), /1일차 08:00/);
+  await page.click('[data-skip=sleep]');
+  await page.waitForFunction(() => !document.querySelector('#action-input').disabled);
+  assert.match(await page.textContent('#g-time'), /1일차 16:00/, '8시간만 잔다');
   await ctx.close();
 });
