@@ -1347,3 +1347,81 @@ test('[수면] 시작 시각(아침)에 "다음 날 아침까지 자기"를 눌�
   assert.match(await page.textContent('#g-time'), /1일차 16:00/, '8시간만 잔다');
   await ctx.close();
 });
+
+test('[날짜 제한 없음] 작품 카드와 퀘스트 탭에 기준 기간이 보이지 않고, 오래 지나도 게임이 계속된다', async () => {
+  const g = await gameWithMarkdown();
+  g.time.day = 120;
+  g.world.goal.days = 30; // 예전 세이브에 남아 있어도 보이지 않는다
+  const { page, ctx, errors } = await open({ storage: { 'rp.autosave': g } });
+  assert.doesNotMatch(await page.textContent('#preset-list'), /📅/);
+  await resume(page);
+  await page.click('[data-tab=quest]');
+  const body = await page.textContent('#tab-body');
+  assert.match(body, /현재 120일차/);
+  assert.doesNotMatch(body, /기준 기간/);
+  await say(page, '계속 이야기한다');
+  assert.doesNotMatch(await logText(page), /엔딩/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// ---------- 화면 다듬기 ----------
+for (const [width, height] of [[390, 800], [1280, 860], [320, 640]]) {
+  test(`[화면] ${width}x${height}: 게임을 열면 대화창과 입력줄이 한 화면에 들어온다`, async () => {
+    const { page, ctx } = await open({ width, height });
+    await startPreset(page, 0);
+    await page.waitForTimeout(400); // 화면 전환 효과가 끝나기를 기다린다
+    const r = await page.evaluate(() => {
+      const box = (s) => document.querySelector(s).getBoundingClientRect();
+      return { log: box('#log'), input: box('#action-input'), send: box('#btn-send'), vh: window.innerHeight };
+    });
+    assert.ok(r.input.bottom <= r.vh && r.send.bottom <= r.vh, `입력줄이 화면 밖: ${r.input.bottom} > ${r.vh}`);
+    assert.ok(r.log.height >= 150, `대화창이 너무 작다: ${r.log.height}`);
+    assert.ok(r.log.bottom <= r.input.top, '대화창이 입력줄을 가리지 않는다');
+    assert.ok(await noHScroll(page));
+    await ctx.close();
+  });
+}
+
+test('[화면] 정보 버튼은 좁은 화면에서만 보이고, 누르면 인물·지도 패널로 이동한다', async () => {
+  const narrow = await open({ width: 390, height: 800 });
+  await startPreset(narrow.page, 0);
+  assert.ok(await narrow.page.locator('#btn-info').isVisible());
+  const before = await narrow.page.evaluate(() => window.scrollY);
+  await narrow.page.click('#btn-info');
+  await narrow.page.waitForFunction((y) => window.scrollY > y + 100, before);
+  assert.ok(await narrow.page.locator('.side').isVisible());
+  await narrow.ctx.close();
+  const wide = await open({ width: 1280, height: 860 });
+  await startPreset(wide.page, 0);
+  assert.ok(await wide.page.locator('#btn-info').isHidden());
+  await wide.ctx.close();
+});
+
+test('[화면] 시스템이 다크 모드면 어두운 테마로 보이고, 라이트면 기존 흰 테마', async () => {
+  const bg = (page) => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const dark = await browser.newContext({ colorScheme: 'dark' });
+  const dp = await dark.newPage(); await dp.goto(base); await dp.waitForSelector('#preset-list .card');
+  assert.equal(await bg(dp), 'rgb(0, 0, 0)');
+  assert.equal(await dp.evaluate(() => getComputedStyle(document.querySelector('.card')).backgroundColor), 'rgb(28, 28, 30)');
+  await dark.close();
+  const light = await browser.newContext({ colorScheme: 'light' });
+  const lp = await light.newPage(); await lp.goto(base); await lp.waitForSelector('#preset-list .card');
+  assert.equal(await bg(lp), 'rgb(245, 245, 247)');
+  assert.equal(await lp.evaluate(() => getComputedStyle(document.querySelector('.card')).backgroundColor), 'rgb(255, 255, 255)');
+  await light.close();
+});
+
+test('[화면] 타이틀: 연결 상태 표시가 테스트 모드/AI 연결에 따라 바뀌고, 320px에서도 넘치지 않는다', async () => {
+  const test1 = await open({ width: 320, height: 640 });
+  await test1.page.waitForSelector('#preset-list .card');
+  assert.equal(await test1.page.getAttribute('#mode-note', 'data-mode'), 'test');
+  assert.ok(await noHScroll(test1.page));
+  assert.ok(await test1.page.locator('#preset-list .card .emoji').first().isVisible());
+  await test1.ctx.close();
+  const ai = await open({ settings: KEY });
+  await ai.page.waitForSelector('#preset-list .card');
+  assert.equal(await ai.page.getAttribute('#mode-note', 'data-mode'), 'ai');
+  assert.match(await ai.page.textContent('#mode-note'), /AI 연결됨/);
+  await ai.ctx.close();
+});

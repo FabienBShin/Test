@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>시뮬레이션 RP</title>
   <meta name="description" content="Gemini AI가 게임 마스터가 되는 시뮬레이션 RP 게임">
-  <meta name="theme-color" content="#f5f5f7">
+  <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="시뮬 RP">
@@ -18,19 +19,21 @@
   <!-- 타이틀 -->
   <section id="screen-title" class="screen">
     <header class="title-head">
+      <p class="eyebrow">AI 게임 마스터와 함께하는</p>
       <h1>시뮬레이션 RP</h1>
-      <div class="row">
+      <p class="lead">세계를 고르고, 나만의 주인공으로 이야기를 만들어 보세요.</p>
+      <div class="row hero-actions">
         <button id="btn-continue" class="primary">이어하기</button>
         <button id="btn-open-sessions">내 채팅</button>
         <button id="btn-open-slots">불러오기</button>
         <label class="btn">파일 불러오기<input type="file" id="file-import-save" accept=".json" hidden></label>
         <button id="btn-open-settings">설정</button>
       </div>
-      <p id="mode-note" class="muted"></p>
+      <p id="mode-note" class="mode-note"></p>
     </header>
-    <h2>기본 세계관</h2>
+    <h2 class="section-title">기본 세계관</h2>
     <div id="preset-list" class="cards"></div>
-    <h2>내 세계관</h2>
+    <h2 class="section-title">내 세계관</h2>
     <div class="row">
       <button id="btn-new-world">＋ 새 세계관 만들기</button>
       <label class="btn">세계관 파일 불러오기<input type="file" id="file-import-world" accept=".json" hidden></label>
@@ -72,6 +75,7 @@
         <div id="g-time" class="muted"></div>
       </div>
       <div class="row">
+        <button id="btn-info" class="icon-btn info-only" aria-label="인물·지도·목표 보기" title="인물·지도·목표 보기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r=".6" fill="currentColor"/></svg></button>
         <button id="btn-display" class="icon-btn text-btn" aria-label="화면 표시 설정" title="화면 표시 설정">Aa</button>
         <button id="btn-save" class="icon-btn" aria-label="저장" title="저장"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M5 15v3a2 2 0 002 2h10a2 2 0 002-2v-3"/></svg></button>
         <button id="btn-settings-2" class="icon-btn" aria-label="설정" title="설정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg></button>
@@ -82,21 +86,21 @@
       <main class="play">
         <div id="log" class="log" aria-live="polite"></div>
         <div id="status" class="status" hidden></div>
-        <div id="choices" class="choices"></div>
-        <div id="suggest-panel" class="suggest" hidden></div>
-        <div class="row tools" id="composer-tools">
-          <button type="button" id="btn-suggest">추천 답변</button>
-          <button type="button" id="btn-continue-story">이어쓰기</button>
-        </div>
-        <form id="action-form" class="action">
-          <input id="action-input" placeholder="행동이나 대사를 자유롭게 입력" autocomplete="off" maxlength="500">
-          <button type="submit" id="btn-send" class="primary">보내기</button>
-          <button type="button" id="btn-stop" class="danger-fill" hidden>중지</button>
-        </form>
-        <div class="row quick">
-          <button data-skip="60">1시간 쉬기</button>
-          <button data-skip="240">4시간 쉬기</button>
-          <button data-skip="sleep">다음 날 아침까지 자기</button>
+        <div class="composer">
+          <div id="choices" class="choices"></div>
+          <div id="suggest-panel" class="suggest" hidden></div>
+          <div class="chips" id="composer-tools">
+            <button type="button" id="btn-suggest">✨ 추천 답변</button>
+            <button type="button" id="btn-continue-story">이어쓰기</button>
+            <button data-skip="60">1시간 쉬기</button>
+            <button data-skip="240">4시간 쉬기</button>
+            <button data-skip="sleep">다음 날 아침까지 자기</button>
+          </div>
+          <form id="action-form" class="action">
+            <input id="action-input" placeholder="행동이나 대사를 자유롭게 입력" autocomplete="off" maxlength="500">
+            <button type="submit" id="btn-send" class="primary" aria-label="보내기">보내기</button>
+            <button type="button" id="btn-stop" class="danger-fill" hidden>중지</button>
+          </form>
         </div>
       </main>
       <aside class="side">

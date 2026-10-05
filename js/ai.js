@@ -111,10 +111,9 @@ export function worldBrief(g, focusText) {
       : [s.memorySummary, recent.slice(-2).join(' / ')].filter(Boolean).join(' | ');
     return `- ${n.id} | ${n.name}(${n.age}세, ${n.role}) 성격:${n.personality}. 현재 위치:${placeName(g, npcPlace(n, g.time.minute))}. 플레이어에 대한 호감${s.affection} 신뢰${s.trust} 애정${s.love}${stageText(g, s.affection)}. 플레이어와의 기억: ${mem || '없음'}`;
   }).join('\n');
-  const overdue = g.time.day > w.goal.days;
   return [
     `세계관: ${w.name} — ${w.summary} (분위기: ${w.tone})`,
-    `메인 목표: ${w.goal.title} — ${w.goal.description} (진행도 ${g.goalProgress}/100, 기준 기간 ${w.goal.days}일${overdue ? ', 기준 기간 지남' : ''})`,
+    `메인 목표: ${w.goal.title} — ${w.goal.description} (진행도 ${g.goalProgress}/100)`,
     `엔딩 후보: ${w.endings.map((e) => `${e.id}=${e.title}`).join(', ')}${g.ending ? ` (이미 도달한 엔딩: ${g.ending.title}, 이후 자유 플레이 중)` : ''}`,
     `장소: ${w.places.map((p) => `${p.id}=${p.name}`).join(', ')}`,
     `세력: ${w.factions.map((f) => `${f.id}=${f.name}(평판 ${g.factions[f.id]})`).join(', ')}`,
@@ -136,7 +135,7 @@ const GOAL_RULE = `목표 진행도 규칙: 플레이어 행동이 메인 목표
 
 const ENDING_RULE = `엔딩 규칙: 엔딩은 기간이 아니라 이야기 상황으로 판단한다.
 - 목표를 이뤘거나(진행도 100 근처), 되돌릴 수 없게 실패했거나, 이야기가 자연스럽게 결말에 이르렀을 때 "ending"을 넣는다.
-- 기준 기간은 세계관에 따라 중요할 수도, 아닐 수도 있다. 기한이 핵심인 목표(예: 축제 날짜)라면 기간이 지났을 때 결말을 내고, 그렇지 않다면 계속 진행한다.
+- 이 게임에는 정해진 기한이 없다. 며칠째인지를 이유로 결말을 내지 말고, 플레이어가 원하는 만큼 이야기가 이어지게 한다.
 - 이미 엔딩에 도달했다면 다시 넣지 않는다.`;
 
 function turnSchema(g) {
@@ -341,7 +340,7 @@ export async function generateWorld(prompt, settings) {
     '너는 시뮬레이션 RP 게임의 세계관 설계자다. 한 줄 설명을 받아 세계관 JSON을 만든다.',
     'NPC는 모두 성인(18세 이상)으로 만든다. 장소 4~6개, NPC 3~5명, 세력 2~3개.',
     `능력치 모듈을 켜면 주인공 능력치 3~5개를 세계관에 맞게 정하고, 그중 하나는 반드시 "${STAMINA}"로 한다.`,
-    'goal.days는 목표의 기준 기간이다. 시간 흐름 단위(time)는 세계관의 활동 단위에 맞게 정한다.',
+    '목표에 날짜 제한(며칠 안에 등)을 두지 않는다. 시간 흐름 단위(time)는 세계관의 활동 단위에 맞게 정한다.',
     `NPC 일과(schedule)는 시간대 ${PERIODS.map((p) => `${p.key}=${p.label}(${p.from}시~)`).join(', ')}마다 있을 장소 id다.`,
     '선택 필드(필요할 때만): opening(첫 장면 마크다운), meters(시간이 지나면 줄어드는 수치 [{id,name,start,max,decayPerHour,restFactor,restRecoverPerHour,levels:[{min,label}]}]), initialFlags, relationStages([{min,name}]), templates({sceneHeader,statusWindow,missionCard}).',
     'npcRelations에는 NPC끼리의 초기 관계를 넣는다: {"npc id":{"다른 npc id":{"affection":0,"trust":0,"love":0}}}',
@@ -355,7 +354,7 @@ const EXAMPLE_SHAPE = {
   id: 'custom-id', emoji: '🌍', name: '이름', summary: '요약', tone: '분위기',
   modules: { economy: true, stats: true }, currency: '화폐',
   time: { startDay: 1, startHour: 8, defaultMinutes: 60, minMinutes: 10, maxMinutes: 480 },
-  goal: { title: '목표', description: '설명', days: 30 },
+  goal: { title: '목표', description: '설명' },
   endings: [{ id: 'good', title: '', description: '' }, { id: 'normal', title: '', description: '' }, { id: 'bad', title: '', description: '' }],
   protagonist: { role: '', background: '', name: '', personality: '', appearance: '', stats: { [STAMINA]: 10, 능력치: 3 }, money: 0, inventory: [] },
   startLocation: 'place-id',

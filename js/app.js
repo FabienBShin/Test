@@ -65,7 +65,7 @@ function toast(msg) {
 // ---------- 타이틀 ----------
 
 function worldCard(w, { editable } = {}) {
-  const tags = [w.modules.economy && '💰 경제', w.modules.stats && '📊 능력치', `📅 ${w.goal.days}일`].filter(Boolean).join(' · ');
+  const tags = [w.modules.economy && '💰 경제', w.modules.stats && '📊 능력치'].filter(Boolean).join(' · ');
   const chats = store.countByWorld()[w.id] ?? 0;
   const actions = el('div', { className: 'row' },
     el('button', { className: 'primary', textContent: '새 채팅', onclick: () => openSetup(w) }),
@@ -75,10 +75,10 @@ function worldCard(w, { editable } = {}) {
     editable ? el('button', { textContent: '삭제', title: '삭제', className: 'danger', onclick: () => { if (confirm(`"${w.name}"을(를) 삭제할까요?`)) { Store.deleteWorld(w.id); renderTitle(); } } }) : null,
   );
   return el('div', { className: 'card' },
-    el('div', { className: 'emoji', textContent: w.emoji || '🌍' }),
-    el('b', { textContent: w.name }),
-    el('span', { className: 'muted small', textContent: w.summary }),
-    el('span', { className: 'tags', textContent: tags }),
+    el('div', { className: 'card-head' },
+      el('div', { className: 'emoji', textContent: w.emoji || '🌍' }),
+      el('div', { className: 'card-title' }, el('b', { textContent: w.name }), el('span', { className: 'tags', textContent: tags }))),
+    el('span', { className: 'summary', textContent: w.summary }),
     actions);
 }
 
@@ -89,6 +89,7 @@ function renderTitle() {
   const n = store.metas().length;
   $('#btn-continue').disabled = !n;
   $('#btn-open-sessions').textContent = n ? `내 채팅 (${n})` : '내 채팅';
+  $('#mode-note').dataset.mode = settings.apiKey ? 'ai' : 'test';
   $('#mode-note').textContent = settings.apiKey
     ? `AI 연결됨 (${settings.model === 'auto' ? '모델 자동 선택' : settings.model})${settings.adultMode ? ' · 성인 모드' : ''}`
     : '테스트 모드: API 키 없이 미리 짜둔 반응으로 플레이합니다. 설정에서 Gemini API 키를 넣으면 AI가 이야기를 만듭니다.';
@@ -513,6 +514,7 @@ async function openSuggest() {
 $('#btn-suggest').onclick = openSuggest;
 $('#btn-continue-story').onclick = continueStory;
 $('#btn-stop').onclick = () => abortCtl?.abort();
+$('#btn-info').onclick = () => document.querySelector('.side').scrollIntoView({ behavior: 'smooth', block: 'start' }); // 좁은 화면에서 정보 패널로 이동
 
 $('#action-form').onsubmit = (e) => {
   e.preventDefault();
@@ -607,7 +609,7 @@ function renderTab() {
       el('b', { textContent: `🎯 ${g.world.goal.title}` }),
       el('div', { className: 'small', textContent: g.world.goal.description }),
       meter('진행도', g.goalProgress * 2 - 100, `${g.goalProgress}/100`),
-      el('div', { className: 'small muted', textContent: `기준 기간: ${g.world.goal.days}일 (현재 ${g.time.day}일차)${g.ending ? ` · 달성한 엔딩: ${g.ending.title}` : ''}` }),
+      el('div', { className: 'small muted', textContent: `현재 ${g.time.day}일차${g.ending ? ` · 달성한 엔딩: ${g.ending.title}` : ''}` }),
       el('b', { textContent: '서브 퀘스트' }),
       ...(g.quests.length ? g.quests.map((q) => el('div', { className: 'small', textContent: `${q.done ? '✅' : '⬜'} ${q.title}` })) : [el('div', { className: 'small muted', textContent: '없음' })]),
     ],
