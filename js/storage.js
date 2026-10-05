@@ -1,7 +1,9 @@
 // 저장: 설정, 자동 저장, 세이브 슬롯, 직접 만든 세계관, 파일 내보내기/불러오기.
 // 모든 데이터는 이 브라우저의 localStorage에만 저장된다.
 
-const K = { settings: 'rp.settings', auto: 'rp.autosave', slots: 'rp.slots', worlds: 'rp.worlds' };
+import { normalizeDisplay } from './render.js';
+
+const K = { settings: 'rp.settings', display: 'rp.display', auto: 'rp.autosave', slots: 'rp.slots', worlds: 'rp.worlds' };
 export const SLOT_COUNT = 5; // 임시값
 
 function read(key, fallback) {
@@ -14,6 +16,10 @@ function write(key, value) {
 export const DEFAULT_SETTINGS = { apiKey: '', model: 'auto', responseLength: 'normal', adultMode: false };
 export const loadSettings = () => ({ ...DEFAULT_SETTINGS, ...read(K.settings, {}) });
 export const saveSettings = (s) => write(K.settings, s);
+
+// 화면 표시(보기 방식, 글자 크기, 줄 간격). 깨진 값은 기본값으로 되돌린다.
+export const loadDisplay = () => normalizeDisplay(read(K.display, null));
+export const saveDisplay = (d) => write(K.display, normalizeDisplay(d));
 
 export const autosave = (g) => write(K.auto, g);
 export const loadAutosave = () => read(K.auto, null);

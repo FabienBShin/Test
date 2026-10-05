@@ -2,6 +2,7 @@ import { PRESETS } from './presets.js';
 import * as S from './state.js';
 import * as AI from './ai.js';
 import * as Store from './storage.js';
+import { renderMessage, renderBlocks, parseBlocks, displayVars, normalizeDisplay } from './render.js';
 
 const modelSelect = document.querySelector('#settings-form [name=model]');
 modelSelect.append(...AI.MODELS.map((m) => Object.assign(document.createElement('option'), { value: m.id, textContent: m.label })));
@@ -14,6 +15,8 @@ const el = (tag, props = {}, ...kids) => {
 };
 
 let settings = Store.loadSettings();
+let display = Store.loadDisplay();
+applyDisplay();
 let game = null;
 let pendingWorld = null;
 let busy = false;
@@ -130,6 +133,7 @@ $('#setup-form').onsubmit = async (e) => {
   }
   game = S.newGame(pendingWorld, custom);
   if (statNote) game.log.push({ role: 'system', text: statNote });
+  pushOpening();
   if (game.pendingStart) {
     game.log.push({ role: 'system', text: '이야기를 시작하기 전에 선택하세요.' });
   } else {
@@ -138,6 +142,12 @@ $('#setup-form').onsubmit = async (e) => {
   autosave();
   show('game');
 };
+
+// 선택 필드 opening: 프리셋이 정해 둔 첫 장면(인사말). {이름}은 주인공 이름으로 바뀐다.
+function pushOpening() {
+  const o = game.world.opening;
+  if (typeof o === 'string' && o.trim()) game.log.push({ role: 'gm', text: o.replaceAll('{이름}', game.player.name) });
+}
 
 function beginStory() {
   game.log.push({ role: 'system', text: `${S.timeLabel(game.time)} · ${S.placeName(game, game.location)}에서 이야기가 시작됩니다.` });
@@ -155,11 +165,54 @@ function chooseStart(c) {
 
 // ---------- 게임 ----------
 
+// ---------- 화면 표시 ----------
+
+function applyDisplay() {
+  for (const [k, v] of Object.entries(displayVars(display))) document.documentElement.style.setProperty(k, v);
+}
+
+// AI 응답(gm)만 지문·대사·상태창으로 나눠 보여준다. 나머지는 글자 그대로.
+function messageNode(m) {
+  if (m.role === 'gm') {
+    const box = el('div', { className: 'msg gm' });
+    box.append(renderMessage(m.text, { viewMode: display.viewMode }));
+    return box;
+  }
+  return el('div', { className: `msg ${m.role}`, textContent: m.text });
+}
+
+const PREVIEW_SAMPLE = '> 🌤️ 장소: 해변 | ⏰ 3일차 14:20\n\n*파도가 발목을 적시고 지나갔다.* 멀리서 갈매기 소리가 들렸다.\n\n**하린**: "물이 빠지기 전에 조개부터 줍자."\n\n```\n 포만감 62 | 수분 48 | 컨디션 71\n```';
+
+function syncDisplayDialog() {
+  const f = $('#display-form');
+  for (const b of f.querySelectorAll('[data-mode]')) b.setAttribute('aria-checked', String(b.dataset.mode === display.viewMode));
+  f.fontSizeLevel.value = display.fontSizeLevel;
+  f.lineHeightLevel.value = display.lineHeightLevel;
+  $('#display-preview').replaceChildren(
+    el('div', { className: 'msg player', textContent: '해변으로 나가 본다.' }),
+    el('div', { className: 'msg gm' }, renderBlocks(parseBlocks(PREVIEW_SAMPLE), { viewMode: display.viewMode })),
+  );
+}
+
+function changeDisplay(patch) {
+  display = normalizeDisplay({ ...display, ...patch });
+  applyDisplay();
+  Store.saveDisplay(display);
+  syncDisplayDialog();
+  if (game && !$('#screen-game').hidden) renderGame();
+}
+
+$('#btn-display').onclick = () => { syncDisplayDialog(); $('#dlg-display').showModal(); };
+for (const b of document.querySelectorAll('#display-form [data-mode]')) b.onclick = () => changeDisplay({ viewMode: b.dataset.mode });
+for (const name of ['fontSizeLevel', 'lineHeightLevel']) {
+  $('#display-form')[name].addEventListener('input', (e) => changeDisplay({ [name]: e.target.value }));
+}
+
 function renderGame() {
   $('#g-world').textContent = `${game.world.emoji || '🌍'} ${game.world.name}`;
   $('#g-time').textContent = `${S.timeLabel(game.time)} · 📍 ${S.placeName(game, game.location)}`;
   const log = $('#log');
-  log.replaceChildren(...game.log.map((m) => el('div', { className: `msg ${m.role}`, textContent: m.text })));
+  log.replaceChildren(...game.log.map(messageNode));
   log.scrollTop = log.scrollHeight;
   $('#choices').replaceChildren(...(game.pendingStart
     ? game.world.startChoices.map((c) => el('button', { textContent: c.label, onclick: () => chooseStart(c) }))
@@ -256,6 +309,11 @@ $('#tabs').addEventListener('click', (e) => {
   renderTab();
 });
 
+// 0~max 게이지. 20% 아래는 위험 색.
+const gauge = (m) => el('div', {},
+  el('span', { className: 'small', textContent: `${m.name} ${Math.round(m.value)}/${m.max}${m.label ? ` · ${m.label}` : ''}` }),
+  el('div', { className: `bar${m.value < m.max * 0.2 ? ' danger' : ''}` }, el('i', { style: `width:${Math.round((m.value / m.max) * 100)}%` })));
+
 const meter = (label, v, shown = v) => el('div', {},
   el('span', { className: 'small', textContent: `${label} ${shown}` }),
   el('div', { className: 'bar' }, el('i', { style: `width:${Math.max(0, (v + 100) / 2)}%` })));
@@ -276,6 +334,7 @@ function renderTab() {
       el('div', { className: 'small', textContent: `외모: ${g.player.appearance}` }),
       g.faction ? el('div', { className: 'small', textContent: `소속: ${g.world.factions.find((f) => f.id === g.faction)?.name ?? g.faction}` }) : null,
       g.world.modules.stats ? el('div', { className: 'kv' }, ...Object.entries(g.player.stats).flatMap(([k, v]) => [el('span', { textContent: k }), el('b', { textContent: v })])) : null,
+      g.meters ? el('div', { className: 'gauges' }, ...S.meterList(g).map(gauge)) : null,
       g.world.modules.economy ? el('div', { textContent: `💰 ${g.player.money.toLocaleString()} ${g.world.currency}` }) : null,
     ],
     people: () => g.world.npcs.map((n) => {
@@ -313,7 +372,7 @@ function renderTab() {
       ...(g.quests.length ? g.quests.map((q) => el('div', { className: 'small', textContent: `${q.done ? '✅' : '⬜'} ${q.title}` })) : [el('div', { className: 'small muted', textContent: '없음' })]),
     ],
     world: () => [
-      el('b', { textContent: '세력 평판' }),
+      ...(g.world.factions.length ? [el('b', { textContent: '세력 평판' })] : []),
       ...g.world.factions.map((f) => meter(f.name, g.factions[f.id])),
       el('b', { textContent: '세계 상태' }),
       el('div', { className: 'small', textContent: Object.keys(g.flags).length ? Object.entries(g.flags).map(([k, v]) => `${k}: ${v}`).join('\n') : '변화 없음' }),
@@ -382,6 +441,13 @@ function validateWorld(w) {
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   if (!['startDay', 'startHour', 'defaultMinutes', 'minMinutes', 'maxMinutes'].every((k) => isNum(t[k]))) return 'time에 startDay, startHour, defaultMinutes, minMinutes, maxMinutes 숫자가 모두 있어야 합니다.';
   if (t.startDay < 1 || t.startHour < 0 || t.startHour > 23 || t.minMinutes <= 0 || t.minMinutes > t.maxMinutes || t.defaultMinutes < t.minMinutes || t.defaultMinutes > t.maxMinutes) return 'time 값의 범위가 올바르지 않습니다.';
+  if (w.meters !== undefined) {
+    if (!Array.isArray(w.meters)) return '"meters"는 목록이어야 합니다.';
+    for (const m of w.meters) {
+      if (!m || typeof m.id !== 'string' || typeof m.name !== 'string' || !Number.isFinite(Number(m.decayPerHour))) return 'meters 항목에는 id, name, decayPerHour(숫자)가 필요합니다.';
+      if (m.levels !== undefined && !Array.isArray(m.levels)) return `meters(${m.name})의 levels는 목록이어야 합니다.`;
+    }
+  }
   const places = new Set(w.places.map((p) => p.id));
   if (!places.has(w.startLocation)) return 'startLocation이 places에 없습니다.';
   for (const n of w.npcs) {

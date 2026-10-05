@@ -1,5 +1,5 @@
 // AI 게임 마스터. 제공자(provider)를 분리해 두어 나중에 다른 AI를 추가할 수 있다.
-import { npcPlace, timeLabel, placeName, npcsHere, STAMINA, PERIODS, relationStage } from './state.js';
+import { npcPlace, timeLabel, placeName, npcsHere, STAMINA, PERIODS, relationStage, meterList } from './state.js';
 
 // ---------- 모델 ----------
 
@@ -54,10 +54,14 @@ const RELATIONSHIP_RULE = `관계 수치(-100~100) 변화 규칙: 실제 사람�
 - 목숨을 구하거나 배신하는 등 관계를 뒤흔드는 결정적 사건은 한 번에 최대 ±50까지 바뀐다.
 - NPC끼리의 관계도 같은 규칙으로 바뀐다(npcRelationChanges).`;
 
-const STATS_RULE = `능력치 반영 규칙: 플레이어 능력치가 이야기와 대화의 결과와 디테일을 바꾼다.
+// 선택 필드 meters: 시간 경과에 따른 감소는 앱이 계산하므로 AI는 행동 결과로 생기는 변화만 알린다.
+const meterRule = (g) => `생존 수치 규칙: 수치는 시간이 지나면 앱이 자동으로 줄이니 시간 경과에 따른 감소는 계산하지 않는다. 먹기·마시기·부상·격한 활동·휴식처럼 이번 행동의 결과로 생기는 변화만 meterChanges에 {수치 id: 변화량}으로 알린다. 수치 id: ${(g.world.meters ?? []).map((m) => `${m.id}=${m.name}`).join(', ')}. 가장 낮은 단계의 수치가 있으면 그 인물의 행동에 제약과 패널티가 생기는 것으로 서술한다.`;
+
+// 체력(STAMINA) 능력치가 있는 세계관에서만 체력 소모 문장을 넣는다 (생존 수치를 쓰는 세계관은 컨디션 수치가 대신한다).
+const statsRule = (g) => `능력치 반영 규칙: 플레이어 능력치가 이야기와 대화의 결과와 디테일을 바꾼다.
 - 행동과 관련된 능력치가 높으면 성공하기 쉽고, 더 많은 정보, 숨은 단서, 인물의 속마음을 알아챈다. 낮으면 실패하거나 놓치는 것이 생긴다.
 - 대화에서도 능력치에 맞게 NPC의 반응과 묘사의 깊이를 바꾼다(예: 매력이 높으면 상대가 더 마음을 연다).
-- 행동으로 능력치가 조금씩 성장하거나 줄 수 있다. 힘든 활동은 ${STAMINA}을(를) 소모한다. ${STAMINA}이(가) 낮으면 행동에 지장이 생긴다.`;
+- 행동으로 능력치가 조금씩 성장하거나 줄 수 있다.${STAMINA in g.player.stats ? ` 힘든 활동은 ${STAMINA}을(를) 소모한다. ${STAMINA}이(가) 낮으면 행동에 지장이 생긴다.` : ''}`;
 
 function contentRule(settings) {
   return settings.adultMode
@@ -107,6 +111,7 @@ export function worldBrief(g, focusText) {
     g.faction ? `플레이어 소속 진영: ${factionName(g, g.faction)}` : '',
     `플레이어: ${g.player.name} (${g.player.role}). 성격: ${g.player.personality}. 외모: ${g.player.appearance}. 배경: ${g.player.background}`,
     w.modules.stats ? `능력치: ${JSON.stringify(g.player.stats)} (최대 ${STAMINA}: ${g.player.statMax?.[STAMINA] ?? '없음'})` : '',
+    g.meters ? `생존 수치: ${meterText(g)}` : '',
     w.modules.economy ? `소지금: ${g.player.money}${w.currency}, 소지품: ${g.player.inventory.join(', ') || '없음'}` : '',
     `현재: ${timeLabel(g.time)}, 위치 ${placeName(g, g.location)}, 여기 있는 인물: ${npcsHere(g).map((n) => n.name).join(', ') || '없음'}`,
     `진행 중 퀘스트: ${g.quests.filter((q) => !q.done).map((q) => q.title).join(', ') || '없음'}`,
@@ -134,6 +139,7 @@ function turnSchema(g) {
  "npcRelationChanges": [{"from":"npc id","to":"npc id","affection":0,"trust":0,"love":0}],
  ${g.world.modules.economy ? '"moneyDelta": 숫자, "itemsAdded": [], "itemsRemoved": [],' : ''}
  ${g.world.modules.stats ? '"statChanges": {"능력치 이름": 변화량},' : ''}
+ ${g.meters ? '"meterChanges": {"수치 id": 변화량},' : ''}
  "factionChanges": {"세력 id": 변화량},
  "flags": {"키": 값},
  "questsAdded": ["새 서브 퀘스트"], "questsCompleted": ["완료된 퀘스트 제목"],
@@ -149,6 +155,7 @@ function storyContext(g) {
   return `${g.story?.summary ? `지금까지의 줄거리 요약:\n${g.story.summary}\n\n` : ''}최근 진행:\n${recent}`;
 }
 
+const meterText = (g) => meterList(g).map((m) => `${m.name} ${m.value}/${m.max}${m.label ? ` (${m.label})` : ''}`).join(', ');
 const stageText = (g, affection) => {
   const name = relationStage(g.world, affection);
   return name ? ` (관계 단계: ${name})` : '';
@@ -176,6 +183,8 @@ function templateBlock(g) {
     `- 소속 진영: ${g.faction ? factionName(g, g.faction) : '미정'}`,
     `- 직책: ${g.player.role}`,
     g.world.modules.stats ? `- 능력치: ${Object.entries(g.player.stats).map(([k, v]) => `${k} ${v}`).join(', ')}` : '',
+    g.meters ? `- 생존 수치: ${meterText(g)}` : '',
+    Object.keys(g.flags).length ? `- 플래그: ${JSON.stringify(g.flags)}` : '',
     `- 인물 호감도: ${g.world.npcs.map(npcLine).join(', ')}`,
   ].filter(Boolean).join('\n');
   return [
@@ -191,7 +200,7 @@ export async function gmTurn(g, actionText, settings) {
   const system = [
     '너는 시뮬레이션 RP 게임의 게임 마스터다. 세계관의 뼈대(장소, 인물, 세력)를 지키면서 플레이어 행동에 반응한다. 지난 줄거리와 인물의 기억에 나온 세부 사항(약속, 이름, 물건, 사건)을 일관되게 이어간다.',
     `묘사는 ${LENGTH_GUIDE[settings.responseLength] ?? LENGTH_GUIDE.normal} 쓴다. 플레이어의 성격을 묘사에 반영한다.`,
-    RELATIONSHIP_RULE, g.world.modules.stats ? STATS_RULE : '', GOAL_RULE, ENDING_RULE,
+    RELATIONSHIP_RULE, g.world.modules.stats ? statsRule(g) : '', g.meters ? meterRule(g) : '', GOAL_RULE, ENDING_RULE,
     contentRule(settings), SAFETY_RULE,
     worldBrief(g, actionText), g.world.templates ? templateBlock(g) : '', turnSchema(g),
   ].filter(Boolean).join('\n\n');
@@ -281,6 +290,7 @@ export async function generateWorld(prompt, settings) {
     `능력치 모듈을 켜면 주인공 능력치 3~5개를 세계관에 맞게 정하고, 그중 하나는 반드시 "${STAMINA}"로 한다.`,
     'goal.days는 목표의 기준 기간이다. 시간 흐름 단위(time)는 세계관의 활동 단위에 맞게 정한다.',
     `NPC 일과(schedule)는 시간대 ${PERIODS.map((p) => `${p.key}=${p.label}(${p.from}시~)`).join(', ')}마다 있을 장소 id다.`,
+    '선택 필드(필요할 때만): opening(첫 장면 마크다운), meters(시간이 지나면 줄어드는 수치 [{id,name,start,max,decayPerHour,restFactor,restRecoverPerHour,levels:[{min,label}]}]), initialFlags, relationStages([{min,name}]), templates({sceneHeader,statusWindow,missionCard}).',
     'npcRelations에는 NPC끼리의 초기 관계를 넣는다: {"npc id":{"다른 npc id":{"affection":0,"trust":0,"love":0}}}',
     '형식은 아래 예시와 같은 키를 그대로 사용한다. id는 영문 소문자.',
     JSON.stringify(EXAMPLE_SHAPE),
@@ -378,6 +388,15 @@ async function callGemini(settings, task, system, user) {
 
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
+// 테스트 모드: 수치마다 정해 둔 단어(먹는다, 마신다 등)가 행동에 있으면 그만큼 회복한다.
+function mockMeterChanges(g, actionText) {
+  const meterChanges = {};
+  for (const m of g.world.meters ?? []) {
+    if ((m.restoreWords ?? []).some((w) => actionText.includes(w))) meterChanges[m.id] = m.restore ?? 25;
+  }
+  return Object.keys(meterChanges).length ? { meterChanges } : {};
+}
+
 function mockTurn(g, actionText) {
   const here = npcsHere(g);
   const npc = here.find((n) => actionText.includes(n.name)) ?? here[0];
@@ -391,6 +410,7 @@ function mockTurn(g, actionText) {
     narration: `(테스트 모드) ${g.player.name}은(는) "${actionText}" 행동을 했다. ${lines.join(' ')}`,
     minutes: resting ? 120 : g.world.time.defaultMinutes,
     resting: resting || undefined,
+    ...mockMeterChanges(g, actionText),
     relationshipChanges: npc ? [{ npc: npc.id, affection: pick([1, 2, 3]), trust: pick([0, 1]), love: 0, memory: `${g.player.name}이(가) "${actionText}"라고 했다` }] : [],
     goalProgressDelta: delta,
     ending: reached ? { id: 'good' } : undefined,

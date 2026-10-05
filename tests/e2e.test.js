@@ -28,7 +28,8 @@ test.after(async () => { await browser?.close(); server?.close(); });
 const ok = (obj) => ({ status: 200, contentType: 'application/json', body: JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(obj) }] } }] }) });
 
 // 새 페이지. gemini: (요청 본문, 모델) => route.fulfill 인자
-async function open({ width = 390, height = 800, gemini, stats, settings } = {}) {
+// storage: 처음 열 때 넣어 둘 localStorage 값(JSON으로 저장). rawStorage: 문자열 그대로 넣을 값. 새로고침할 때마다 다시 넣으므로 이어하기 확인용이다.
+async function open({ width = 390, height = 800, gemini, stats, settings, storage, rawStorage } = {}) {
   const ctx = await browser.newContext({ viewport: { width, height }, acceptDownloads: true });
   const page = await ctx.newPage();
   const errors = [];
@@ -47,11 +48,18 @@ async function open({ width = 390, height = 800, gemini, stats, settings } = {})
     return route.fulfill(res);
   });
   if (settings) await ctx.addInitScript((s) => localStorage.setItem('rp.settings', JSON.stringify(s)), settings);
+  if (storage) await ctx.addInitScript((kv) => { for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, JSON.stringify(v)); }, storage);
+  if (rawStorage) await ctx.addInitScript((kv) => { for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, v); }, rawStorage);
   await page.goto(base);
   return { page, ctx, errors, requests };
 }
 const KEY = { apiKey: 'secret-test-key', model: 'auto', responseLength: 'normal', adultMode: false };
 
+// 프리셋 id로 위치를 찾는다 (프리셋이 늘어도 번호가 어긋나지 않게)
+async function presetIndex(id) {
+  const { PRESETS } = await import('../js/presets.js');
+  return PRESETS.findIndex((p) => p.id === id);
+}
 async function startPreset(page, index = 0, custom = {}) {
   await page.locator('#preset-list .card').nth(index).getByText('플레이').click();
   for (const [k, v] of Object.entries(custom)) await page.fill(`#setup-form [name=${k}]`, v);
@@ -80,6 +88,9 @@ for (const width of [390, 1280]) {
     }
     await page.click('#btn-settings-2');
     assert.ok(await noHScroll(page), '설정 창');
+    await page.keyboard.press('Escape');
+    await page.click('#btn-display');
+    assert.ok(await noHScroll(page), '화면 표시 창');
     assert.deepEqual(errors, []);
     await ctx.close();
   });
@@ -108,10 +119,11 @@ test('[기준2,4] 설정에 키를 넣으면 AI가 응답하고, 키는 Gemini �
 });
 
 // ---------- 완료 기준 3: 테스트 모드 6종 ----------
-test('[기준3] API 키 없이 7개 프리셋에서 대화, 이동, 시간 넘기기가 된다', async () => {
+test('[기준3] API 키 없이 모든 프리셋에서 대화, 이동, 시간 넘기기가 된다', async () => {
+  const { PRESETS } = await import('../js/presets.js');
   const { page, ctx, errors, requests } = await open();
   const count = await page.locator('#preset-list .card').count();
-  assert.equal(count, 7);
+  assert.equal(count, PRESETS.length);
   for (let i = 0; i < count; i++) {
     await page.goto(base);
     await startPreset(page, i);
@@ -256,7 +268,7 @@ test('[기준10] 프리셋을 복사해서 수정할 수 있고 원본은 그대
   await page.locator('#preset-list .card').first().getByText('복사해서 수정').click();
   await page.click('#btn-editor-save');
   assert.equal(await page.locator('#world-list .card').count(), 1);
-  assert.equal(await page.locator('#preset-list .card').count(), 7);
+  assert.equal(await page.locator('#preset-list .card').count(), (await import('../js/presets.js')).PRESETS.length);
   await ctx.close();
 });
 
@@ -725,4 +737,224 @@ test('[웹앱] 배포 워크플로가 복사하는 파일로 게임이 동작한
   for (const ref of html.matchAll(/(?:href|src)="([^"#:]+)"/g)) {
     assert.ok(copied.some((c) => ref[1] === c || ref[1].startsWith(`${c}/`)), `${ref[1]}가 배포에서 빠진다`);
   }
+});
+
+// ---------- 렌더러, 화면 표시 설정 ----------
+const MD_SAMPLE = [
+  '> 🏝️ 장소: 모래해변 | 🌤️ 날씨: ☀️ 맑음', '> ⏰ 시간: 3일차 | 14:20', '', '{{asset:BG001}}', '',
+  '*파도가 발목을 적시고 지나갔다.*', '{{asset:HR01}}', '**서하린**: "조개부터 줍자."',
+  '*하린은 앞장섰다. 모래 위에 <b>발자국</b>이 찍혔다.*', '**도예은 (서퍼):** 💭 \'저 사람, **조심해야겠다.**\'', '',
+  '```INFO', '포만감: 62 (보통)', '```',
+].join('\n');
+async function gameWithMarkdown() {
+  const { PRESETS } = await import('../js/presets.js');
+  const S = await import('../js/state.js');
+  const g = S.newGame(PRESETS[0], {});
+  g.log.push({ role: 'player', text: '조개를 줍는다.' }, { role: 'gm', text: MD_SAMPLE });
+  return g;
+}
+
+test('[렌더러] AI 응답의 서식이 헤더·지문·대사·상태창으로 보이고, HTML은 글자로만 보인다', async () => {
+  const { page, ctx, errors } = await open({ storage: { 'rp.autosave': await gameWithMarkdown() } });
+  await page.click('#btn-continue');
+  const body = page.locator('.msg.gm .gm-body').last();
+  assert.match(await body.locator('.quote').textContent(), /장소: 모래해변.*3일차 \| 14:20/s);
+  assert.equal(await body.locator('.dialogue .who').first().textContent(), '서하린');
+  assert.equal(await body.locator('.dialogue .say').first().textContent(), '조개부터 줍자.');
+  assert.equal(await body.locator('.dialogue.thought .who').textContent(), '도예은 (서퍼)');
+  assert.equal(await body.locator('.dialogue.thought strong').textContent(), '조심해야겠다.');
+  assert.match(await body.locator('.panel-label').textContent(), /INFO/);
+  assert.match(await body.locator('.panel-text').textContent(), /포만감: 62 \(보통\)/);
+  const log = await logText(page);
+  assert.ok(!log.includes('**') && !log.includes('{{asset') && !log.includes('```'), '서식 기호가 날것으로 남지 않는다');
+  assert.ok(log.includes('<b>발자국</b>'), 'HTML 태그는 글자로 보인다');
+  assert.equal(await page.locator('#log b, #log script, #log img').count(), 0, 'HTML 요소가 만들어지지 않는다');
+  assert.ok(await noHScroll(page));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('[렌더러] 굵게·기울임·코드·대사 안의 HTML도 요소가 되거나 실행되지 않는다', async () => {
+  const { PRESETS } = await import('../js/presets.js');
+  const S = await import('../js/state.js');
+  const g = S.newGame(PRESETS[0], {});
+  g.log.push({ role: 'gm', text: [
+    '**<img src=x onerror="window.__xss=1">** 와 *앞 <img src=x onerror=window.__xss=2> 뒤* 와 `<script>window.__xss=3</script>`',
+    '', '**공격자**: "<img src=x onerror=window.__xss=4> **<b>굵게</b>**"', '',
+    '```', '<img src=x onerror=window.__xss=5>', '```', '', '> <img src=x onerror=window.__xss=6>',
+  ].join('\n') });
+  const { page, ctx, errors } = await open({ storage: { 'rp.autosave': g } });
+  await page.click('#btn-continue');
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => window.__xss), undefined, '실행된 스크립트가 없다');
+  assert.equal(await page.locator('#log img, #log script, #log b').count(), 0, 'HTML 요소가 만들어지지 않는다');
+  const log = await logText(page);
+  for (let n = 1; n <= 6; n++) assert.ok(log.includes(`window.__xss=${n}`), `${n}번 글자가 그대로 보인다`);
+  assert.ok((await page.locator('#log strong').first().textContent()).includes('<img src=x'), '굵게 안의 태그도 글자');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('[렌더러] 생존 수치가 20% 아래면 게이지가 위험색으로 보인다', async () => {
+  const { PRESETS } = await import('../js/presets.js');
+  const S = await import('../js/state.js');
+  const g = S.newGame(PRESETS.find((p) => p.id === 'island'), {});
+  Object.assign(g.meters, { satiety: 10, hydration: 50, condition: 19.9 });
+  const { page, ctx } = await open({ storage: { 'rp.autosave': g } });
+  await page.click('#btn-continue');
+  await page.click('[data-tab=me]');
+  const bars = page.locator('#tab-body .gauges .bar');
+  assert.deepEqual(await bars.evaluateAll((els) => els.map((e) => e.classList.contains('danger'))), [true, false, true]);
+  const color = (i) => bars.nth(i).locator('i').evaluate((el) => getComputedStyle(el).backgroundColor);
+  assert.notEqual(await color(0), await color(1), '위험 게이지는 다른 색');
+  assert.match(await page.textContent('#tab-body .gauges'), /포만감 10\/100 · 위험/);
+  await ctx.close();
+});
+
+test('[표시설정] 소설형으로 바꾸면 지문이 말풍선에서 빠지고, 글자 크기·줄 간격과 함께 새로고침 후에도 유지된다', async () => {
+  const { page, ctx, errors } = await open({ storage: { 'rp.autosave': await gameWithMarkdown() } });
+  await page.click('#btn-continue');
+  assert.ok(await page.locator('.gm-body.view-bubble .narration.bubble').count() > 0, '기본은 채팅형');
+  await page.click('#btn-display');
+  assert.equal(await page.getAttribute('[data-mode=bubble]', 'aria-checked'), 'true');
+  assert.ok(await page.locator('#display-preview .dialogue').count() > 0, '미리보기에 예시가 보인다');
+  await page.click('[data-mode=plain]');
+  assert.equal(await page.getAttribute('[data-mode=plain]', 'aria-checked'), 'true');
+  assert.equal(await page.locator('#log .narration.bubble').count(), 0);
+  assert.ok(await page.locator('#log .gm-body.view-plain .narration').count() > 0);
+  assert.ok(await page.locator('#log .dialogue .say.bubble').count() > 0, '대사는 소설형에서도 말풍선');
+  const setLevel = (name, v) => page.$eval(`#display-form [name=${name}]`, (el, val) => { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); }, String(v));
+  await setLevel('fontSizeLevel', 5);
+  await setLevel('lineHeightLevel', 1);
+  const vars = () => page.evaluate(() => [getComputedStyle(document.documentElement).getPropertyValue('--chat-font-size').trim(), getComputedStyle(document.documentElement).getPropertyValue('--chat-line-height').trim()]);
+  assert.deepEqual(await vars(), ['1.25rem', '1.3']);
+  assert.equal(await page.$eval('#log', (el) => getComputedStyle(el).fontSize), '20px');
+  assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('rp.display'))), { viewMode: 'plain', fontSizeLevel: 5, lineHeightLevel: 1 });
+  await page.reload();
+  assert.deepEqual(await vars(), ['1.25rem', '1.3'], '새로고침 후에도 크기 유지');
+  await page.click('#btn-continue');
+  assert.equal(await page.locator('#log .narration.bubble').count(), 0, '새로고침 후에도 소설형');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('[표시설정] 저장된 값이 깨져 있으면 기본값(채팅형, 3단계)으로 시작한다', async () => {
+  for (const raw of ['{깨짐', 'null', '[1,2]', JSON.stringify({ viewMode: 'x', fontSizeLevel: 99, lineHeightLevel: 'abc' })]) {
+    const { page, ctx, errors } = await open({ rawStorage: { 'rp.display': raw } });
+    await startPreset(page, 0);
+    await page.click('#btn-display');
+    assert.equal(await page.getAttribute('[data-mode=bubble]', 'aria-checked'), 'true', raw);
+    assert.equal(await page.inputValue('#display-form [name=fontSizeLevel]'), raw.includes('99') ? '5' : '3', raw);
+    assert.equal(await page.inputValue('#display-form [name=lineHeightLevel]'), '3', raw);
+    assert.deepEqual(errors, [], raw);
+    await ctx.close();
+  }
+});
+
+// ---------- 새 프리셋: 무인도, 봉쇄 도시 ----------
+test('[무인도] 오프닝이 먼저 나오고 이름이 들어가며, 생존 수치는 시간이 지나면 줄고 먹으면 오른다', async () => {
+  const { page, ctx, errors } = await open();
+  await startPreset(page, await presetIndex('island'), { name: '민재' });
+  const log = await logText(page);
+  for (const n of ['서하린', '도예은', '윤채원']) assert.ok(log.includes(n), n);
+  assert.ok(log.includes('민재, 맞지?') && !log.includes('{이름}'), '주인공 이름이 들어간다');
+  assert.ok(await page.locator('.msg.gm .panel-text').count() > 0, '오프닝 상태창이 패널로 보인다');
+  assert.match(await page.textContent('#g-time'), /1일차 08:00 .*모래해변/);
+  const gauge = async () => {
+    await page.click('[data-tab=me]');
+    const t = await page.textContent('#tab-body .gauges');
+    return Object.fromEntries([...t.matchAll(/(포만감|수분|컨디션) (\d+)\/100/g)].map((m) => [m[1], Number(m[2])]));
+  };
+  assert.deepEqual(await gauge(), { 포만감: 100, 수분: 100, 컨디션: 100 });
+  await say(page, '주변을 둘러본다');
+  const afterLook = await gauge();
+  assert.ok(afterLook.포만감 < 100 && afterLook.수분 < 100, '행동 시간만큼 줄어든다');
+  await page.click('[data-skip=sleep]');
+  await page.waitForFunction(() => !document.querySelector('#action-input').disabled);
+  const afterSleep = await gauge();
+  assert.ok(afterSleep.포만감 < 80 && afterSleep.수분 < 80, `하룻밤 뒤 ${JSON.stringify(afterSleep)}`);
+  assert.equal(afterSleep.컨디션, 100, '자고 나면 컨디션이 가득');
+  await say(page, '과일을 먹는다');
+  await say(page, '샘물을 마신다');
+  const afterMeal = await gauge();
+  assert.ok(afterMeal.포만감 > afterSleep.포만감 + 15, `${afterSleep.포만감} → ${afterMeal.포만감}`);
+  assert.ok(afterMeal.수분 > afterSleep.수분 + 20, `${afterSleep.수분} → ${afterMeal.수분}`);
+  await page.click('[data-tab=people]');
+  assert.match(await page.textContent('#tab-body'), /서하린 \(해양생물 연구원\) \[경계\]/);
+  await page.click('[data-tab=world]');
+  assert.doesNotMatch(await page.textContent('#tab-body'), /세력 평판/, '세력이 없으면 제목도 없다');
+  assert.match(await page.textContent('#tab-body'), /거처단계: 1/);
+  assert.ok(await noHScroll(page));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('[무인도] 생존 수치와 오프닝은 저장하고 이어해도 그대로다', async () => {
+  const { page, ctx } = await open();
+  await startPreset(page, await presetIndex('island'));
+  await page.click('[data-skip=sleep]');
+  await page.waitForFunction(() => !document.querySelector('#action-input').disabled);
+  await page.click('[data-tab=me]');
+  const before = await page.textContent('#tab-body .gauges');
+  await page.reload();
+  await page.click('#btn-continue');
+  await page.click('[data-tab=me]');
+  assert.equal(await page.textContent('#tab-body .gauges'), before);
+  assert.equal(await page.locator('.msg.gm').count(), 1, '오프닝은 한 번만');
+  await ctx.close();
+});
+
+test('[봉쇄도시] 오프닝의 INFO 패널과 세력별 점령 구역, 호감도 단계가 보인다', async () => {
+  const { page, ctx, errors } = await open();
+  await startPreset(page, await presetIndex('blockade'), { name: '서진' });
+  assert.match(await page.textContent('#g-time'), /1일차 14:00 .*외곽 빌라촌/);
+  const log = await logText(page);
+  assert.ok(log.includes('서가을 (스캐빈저)') && log.includes('서진이라고 적힌 이름표'));
+  assert.match(await page.locator('.msg.gm .panel-label').textContent(), /INFO/);
+  assert.match(await page.locator('.msg.gm .panel-text').textContent(), /방주회: 2\/25 구역[\s\S]*위험구역·미확보: 14\/25 구역/);
+  await page.click('[data-tab=world]');
+  const w = await page.textContent('#tab-body');
+  assert.match(w, /방주회 2/);
+  assert.match(w, /철책대 4/);
+  assert.match(w, /흑익회 5/);
+  await page.click('[data-tab=people]');
+  const people = await page.textContent('#tab-body');
+  assert.match(people, /서가을 \(스캐빈저 \(무소속\)\) \[Lv\.1\].*여기 있음/s);
+  assert.match(people, /한서윤.*시립병원|한서윤/s);
+  await page.click('[data-tab=me]');
+  assert.doesNotMatch(await page.textContent('#tab-body'), /gauges/);
+  assert.equal(await page.locator('#tab-body .gauges').count(), 0, '생존 수치가 없는 세계관에는 게이지가 없다');
+  await say(page, '서가을에게 말을 건다');
+  assert.match(await logText(page), /테스트 모드/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('[에디터] 새 프리셋을 복사해 저장할 수 있고, 깨진 생존 수치(meters)는 저장되지 않는다', async () => {
+  const { page, ctx } = await open();
+  await page.locator('#preset-list .card').nth(await presetIndex('island')).getByText('복사해서 수정').click();
+  const w = JSON.parse(await page.inputValue('#editor-json'));
+  assert.ok(w.meters.length === 3 && w.opening.includes('{이름}'), '복사본에 새 필드가 그대로 들어 있다');
+  const bad = [
+    [{ ...w, meters: 'x' }, /meters.*목록/],
+    [{ ...w, meters: [{ id: 'a', name: '가' }] }, /decayPerHour/],
+    [{ ...w, meters: [{ id: 1, name: '가', decayPerHour: 1 }] }, /id, name/],
+    [{ ...w, meters: [{ id: 'a', name: '가', decayPerHour: 'abc' }] }, /decayPerHour/],
+    [{ ...w, meters: [{ id: 'a', name: '가', decayPerHour: 1, levels: 5 }] }, /levels/],
+  ];
+  for (const [world, re] of bad) {
+    await page.fill('#editor-json', JSON.stringify(world));
+    await page.click('#btn-editor-save');
+    assert.match(await page.textContent('#editor-error'), re);
+  }
+  assert.equal(await page.locator('#world-list .card').count(), 0);
+  await page.fill('#editor-json', JSON.stringify(w));
+  await page.click('#btn-editor-save');
+  assert.equal(await page.locator('#world-list .card').count(), 1);
+  // 복사본으로 시작해도 수치가 있다
+  await page.locator('#world-list .card').first().getByText('플레이').click();
+  await page.click('text=게임 시작');
+  await page.waitForSelector('#screen-game:not([hidden])');
+  assert.equal(await page.locator('#tab-body .gauges > div').count(), 3);
+  await ctx.close();
 });
