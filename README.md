@@ -11,6 +11,15 @@ Gemini AI가 게임 마스터가 되는 웹앱 시뮬레이션 RP 게임.
 - API 키가 없으면 테스트 모드로 동작합니다. 설정(⚙️)에서 Gemini API 키를 넣으면 AI가 이야기를 만듭니다.
 - 한 번 열어두면 인터넷이 끊겨도 앱이 열립니다(AI 응답에는 인터넷 필요).
 
+## 대화 기능
+- **채팅방**: 같은 작품으로 새 채팅을 여러 개 만들 수 있고, "내 채팅"에서 열기·이름 변경·삭제
+- 마지막 답변 **다시 생성**, 마지막 내 메시지 **수정**, 입력 없이 **이어쓰기**, **추천 답변** 3개
+- 응답을 **실시간으로 표시**(설정에서 끌 수 있음), 생성 중 **중지**
+
+## 화면과 프리셋
+- 상단 **Aa** 버튼: 채팅형/소설형, 글자 크기, 줄 간격 (이 브라우저에 저장)
+- 프리셋에 선택 필드를 둘 수 있다: `templates`, `relationStages`, `startChoices`, `opening`, `meters`, `initialFlags` (설명은 `docs/OPEN_QUESTIONS.md`)
+
 ## 배포
 `main` 브랜치에 올라가면 GitHub Actions가 테스트를 돌리고, 통과하면 GitHub Pages에 자동으로 배포합니다.
 처음 한 번은 저장소 **Settings → Pages → Build and deployment → Source**를 **GitHub Actions**로 바꿔야 합니다.

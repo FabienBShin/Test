@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/unit.test.js",
+    "test": "node --test tests/unit.test.js tests/sessions.test.js tests/ai.test.js",
     "test:e2e": "node --test --test-concurrency=1 tests/e2e.test.js"
   },
   "devDependencies": {

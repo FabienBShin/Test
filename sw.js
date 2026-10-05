@@ -1,10 +1,10 @@
 // 서비스 워커: 앱 파일을 저장해 두어 오프라인에서도 열리게 한다.
 // 온라인이면 항상 새 파일을 먼저 받아오므로(네트워크 우선) 업데이트가 바로 반영된다.
 // Gemini API 같은 다른 사이트 요청은 건드리지 않는다.
-const CACHE = 'rp-app-v2';
+const CACHE = 'rp-app-v4';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
-  'js/app.js', 'js/ai.js', 'js/state.js', 'js/storage.js', 'js/presets.js',
+  'js/app.js', 'js/ai.js', 'js/state.js', 'js/storage.js', 'js/presets.js', 'js/render.js', 'js/sessions.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 

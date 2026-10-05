@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { PRESETS } from '../js/presets.js';
 import * as S from '../js/state.js';
 import * as AI from '../js/ai.js';
+import * as R from '../js/render.js';
 
 const preset = (id) => PRESETS.find((p) => p.id === id);
 const start = (id = 'fantasy', custom = {}) => S.newGame(preset(id), custom);
@@ -26,8 +27,9 @@ const KEY = { apiKey: 'test-key', model: 'auto', responseLength: 'normal', adult
 test.beforeEach(() => AI.resetCooldowns());
 
 // ---------- 프리셋 ----------
-test('프리셋 7종이 있고, 학원물은 대학교이며 모든 NPC가 성인이다', () => {
-  assert.equal(PRESETS.length, 7);
+test('프리셋 id가 겹치지 않고, 학원물은 대학교이며 모든 NPC가 성인이다', () => {
+  assert.ok(PRESETS.length >= 7);
+  assert.equal(new Set(PRESETS.map((p) => p.id)).size, PRESETS.length);
   assert.match(preset('campus').name, /대학/);
   for (const p of PRESETS) for (const n of p.npcs) assert.ok(n.age >= 18, `${p.id}/${n.id}`);
 });
@@ -40,7 +42,7 @@ test('프리셋 데이터가 서로 맞물린다 (일과 장소, 시작 장소, 
     const ids = new Set(p.npcs.map((n) => n.id));
     for (const [a, row] of Object.entries(p.npcRelations)) for (const b of Object.keys(row)) assert.ok(ids.has(a) && ids.has(b) && a !== b, `${p.id} 관계 ${a}→${b}`);
     assert.ok(p.endings.length >= 2);
-    if (p.modules.stats) assert.ok(S.STAMINA in p.protagonist.stats, `${p.id} 체력`);
+    if (p.modules.stats) assert.ok(S.STAMINA in p.protagonist.stats || p.meters?.length, `${p.id} 체력 또는 생존 수치`);
   }
 });
 
@@ -547,4 +549,248 @@ test('종족전쟁 규칙: 임무는 카드 제시 후에만 수락 선택지를
   fakeGemini(() => okJson({ narration: 'ok' }));
   await AI.gmTurn(g, '임무를 받는다', KEY);
   assert.ok(calls[0].body.systemInstruction.parts[0].text.includes('카드 없이 "임무 수락"'));
+});
+
+// ---------- 렌더러 ----------
+test('렌더러: 장면 헤더, 지문, 대사, 속마음, 상태창을 나누고 이미지 코드는 지운다', () => {
+  const text = [
+    '> 🏝️ 장소: 해변 | 🌤️ 날씨: 맑음', '> ⏰ 시간: 3일차 | 14:20', '', '{{asset:BG001}}', '',
+    '*파도가 밀려왔다.*', '{{asset:HR01}}', '**서하린**: "조개부터 줍자."', '**도예은 (서퍼):** "좋아!"',
+    '**[마왕군 부관]**: "따라와라."', '**채원:** 💭 \'무서워...\'', '', '```INFO', '포만감: 62', '', '수분: 48', '```',
+  ].join('\n');
+  const b = R.parseBlocks(text);
+  assert.deepEqual(b.map((x) => x.type), ['quote', 'narration', 'dialogue', 'dialogue', 'dialogue', 'dialogue', 'code']);
+  assert.deepEqual(b[0].lines, ['🏝️ 장소: 해변 | 🌤️ 날씨: 맑음', '⏰ 시간: 3일차 | 14:20']);
+  assert.equal(b[1].text, '*파도가 밀려왔다.*');
+  assert.deepEqual([b[2].speaker, b[2].text], ['서하린', '조개부터 줍자.']);
+  assert.deepEqual([b[3].speaker, b[3].text], ['도예은 (서퍼)', '좋아!']);
+  assert.equal(b[4].speaker, '마왕군 부관', '대괄호는 뗀다');
+  assert.deepEqual([b[5].speaker, b[5].thought, b[5].text], ['채원', true, '무서워...']);
+  assert.deepEqual([b[6].label, b[6].text], ['INFO', '포만감: 62\n\n수분: 48'], '코드블록 안의 빈 줄은 유지');
+  assert.ok(!JSON.stringify(b).includes('asset'));
+});
+
+test('렌더러: 줄 안쪽 서식 분석 — 굵게, 기울임, 코드, 짝 없는 별표는 글자 그대로', () => {
+  assert.deepEqual(R.parseInline('가 **나** 다 *라* `마` 바'), [
+    { t: 'x', s: '가 ' }, { t: 'b', s: '나' }, { t: 'x', s: ' 다 ' }, { t: 'i', s: '라' }, { t: 'x', s: ' ' }, { t: 'c', s: '마' }, { t: 'x', s: ' 바' }]);
+  assert.deepEqual(R.parseInline('별 * 하나와 ** 둘'), [{ t: 'x', s: '별 * 하나와 ** 둘' }]);
+  assert.deepEqual(R.parseInline('3 * 4 * 5'), [{ t: 'x', s: '3 * 4 * 5' }], '곱셈 기호는 서식이 아니다');
+  assert.deepEqual(R.parseInline('**a**'), [{ t: 'b', s: 'a' }], '한 글자도 서식');
+  assert.deepEqual(R.parseInline('* 목록처럼 시작'), [{ t: 'x', s: '* 목록처럼 시작' }]);
+  assert.deepEqual(R.parseInline(''), []);
+});
+
+test('렌더러: 이상한 입력에도 내용이 사라지지 않는다 (빈 값, 닫히지 않은 코드블록, HTML, 아주 긴 글)', () => {
+  assert.deepEqual(R.parseBlocks(''), []);
+  assert.deepEqual(R.parseBlocks(null), []);
+  assert.deepEqual(R.parseBlocks(undefined), []);
+  assert.deepEqual(R.parseBlocks('{{asset:A}}\n\n   \n| |'), [], '이미지 코드와 빈 줄만 있으면 빈 목록');
+  const open = R.parseBlocks('앞 문장\n```\n상태 줄 1\n상태 줄 2');
+  assert.deepEqual(open.map((x) => x.type), ['narration', 'code']);
+  assert.equal(open[1].text, '상태 줄 1\n상태 줄 2');
+  const html = R.parseBlocks('<script>alert(1)</script> <b>x</b>');
+  assert.equal(html[0].text, '<script>alert(1)</script> <b>x</b>', 'HTML은 해석하지 않고 글자 그대로 둔다');
+  const long = '가'.repeat(200000);
+  assert.equal(R.parseBlocks(long)[0].text.length, 200000);
+  assert.equal(R.parseBlocks('--- \n***\n본문')[0].text, '본문', '구분선은 지운다');
+  assert.equal(R.parseBlocks('**이름**:')[0].type, 'dialogue');
+});
+
+test('렌더러: 화면 표시 설정 값은 범위 밖이거나 깨져도 안전한 값이 된다', () => {
+  assert.deepEqual(R.normalizeDisplay(null), R.DEFAULT_DISPLAY);
+  assert.deepEqual(R.normalizeDisplay('x'), R.DEFAULT_DISPLAY);
+  assert.deepEqual(R.normalizeDisplay({ viewMode: 'plain', fontSizeLevel: 9, lineHeightLevel: -3 }), { viewMode: 'plain', fontSizeLevel: 5, lineHeightLevel: 1 });
+  assert.deepEqual(R.normalizeDisplay({ viewMode: 'weird', fontSizeLevel: 'abc', lineHeightLevel: '4' }), { viewMode: 'bubble', fontSizeLevel: 3, lineHeightLevel: 4 });
+  assert.equal(R.normalizeDisplay({ fontSizeLevel: 2.6 }).fontSizeLevel, 3, '소수는 반올림');
+  assert.deepEqual(R.displayVars({ fontSizeLevel: 1, lineHeightLevel: 5 }), { '--chat-font-size': '0.8125rem', '--chat-line-height': '1.8' });
+  assert.equal(R.FONT_REM.length, 5);
+  assert.equal(R.LINE_HEIGHT.length, 5);
+  assert.deepEqual(R.displayVars(R.DEFAULT_DISPLAY), { '--chat-font-size': '1rem', '--chat-line-height': '1.5' }, '기본값은 기존 화면 크기와 같다');
+});
+
+// ---------- 생존 수치 (meters) ----------
+const island = () => S.newGame(preset('island'), {});
+
+test('생존 수치: 시작값이 있고, 수치가 없는 세계관에는 생기지 않는다', () => {
+  const g = island();
+  assert.deepEqual(g.meters, { satiety: 100, hydration: 100, condition: 100 });
+  assert.deepEqual(g.flags, { 거처단계: 1 }, 'initialFlags');
+  assert.ok(!('meters' in start('fantasy')));
+  assert.deepEqual(start('fantasy').flags, {});
+  assert.deepEqual(S.meterList(g).map((m) => [m.name, m.value, m.max, m.label]), [['포만감', 100, 100, '양호'], ['수분', 100, 100, '양호'], ['컨디션', 100, 100, '양호']]);
+});
+
+test('생존 수치: 시간이 지나면 앱이 줄이고 0 아래로 내려가지 않는다', () => {
+  const g = island();
+  S.advanceTime(g, 60, { clampToWorld: false });
+  assert.deepEqual(g.meters, { satiety: 96.5, hydration: 96, condition: 98.8 });
+  S.advanceTime(g, 60 * 24 * 3, { clampToWorld: false });
+  assert.deepEqual(g.meters, { satiety: 0, hydration: 0, condition: 12.4 }, '컨디션은 천천히 줄어든다');
+  S.advanceTime(g, 60 * 24 * 10, { clampToWorld: false });
+  assert.deepEqual(g.meters, { satiety: 0, hydration: 0, condition: 0 });
+  assert.equal(S.meterList(g)[0].label, '위험');
+});
+
+test('생존 수치: 시간 범위 제한이 걸린 행동 시간도 줄이는 시간에 반영된다 (AI가 1을 보내면 최소 5분)', () => {
+  const g = island();
+  S.advanceTime(g, 1);
+  assert.equal(g.meters.satiety, 99.7);
+  S.advanceTime(g, 99999);
+  assert.equal(g.meters.satiety, 71.7, '최대 480분(8시간)까지만 흐른다: 99.7 − 3.5×8');
+});
+
+test('생존 수치: 자는 동안은 포만감·수분이 절반 속도로 줄고 컨디션은 회복한다', () => {
+  const g = island();
+  g.meters.condition = 50;
+  S.rest(g, 240);
+  assert.equal(g.meters.satiety, 93);
+  assert.equal(g.meters.hydration, 92);
+  assert.equal(g.meters.condition, 79.6);
+  S.rest(g, 24 * 60, { cap: false });
+  assert.equal(g.meters.condition, 100, '최대치를 넘지 않는다');
+});
+
+test('생존 수치: AI가 알린 변화는 범위 안으로 적용되고 이상한 값은 무시된다', () => {
+  const g = island();
+  S.advanceTime(g, 600, { clampToWorld: false });
+  const before = { ...g.meters };
+  S.applyResult(g, { meterChanges: { satiety: 25, hydration: -9999, condition: 'abc', nope: 5 } });
+  assert.equal(g.meters.satiety, Math.round((before.satiety + 25) * 10) / 10);
+  assert.equal(g.meters.hydration, 0, '0 아래로 내려가지 않는다');
+  assert.equal(g.meters.condition, before.condition);
+  assert.ok(!('nope' in g.meters));
+  S.applyResult(g, { meterChanges: { satiety: 1e9 } });
+  assert.equal(g.meters.satiety, 100);
+  for (const bad of [null, 'x', [1, 2], 42]) S.applyResult(g, { meterChanges: bad });
+  assert.equal(g.meters.satiety, 100);
+  const plain = start('fantasy');
+  S.applyResult(plain, { meterChanges: { satiety: 10 } });
+  assert.ok(!('meters' in plain), '수치가 없는 세계관은 무시');
+});
+
+test('생존 수치: 단계 이름은 경계값에서 정확히 바뀐다', () => {
+  const m = preset('island').meters[0];
+  const at = (v) => S.meterLabel(m, v);
+  assert.deepEqual([100, 70, 69.9, 40, 39.9, 20, 19.9, 0].map(at), ['양호', '양호', '보통', '보통', '나쁨', '나쁨', '위험', '위험']);
+  assert.equal(S.meterLabel({ levels: [] }, 50), null);
+  assert.equal(S.meterLabel({}, 50), null);
+});
+
+test('생존 수치: 예전 세이브를 불러오면 수치가 채워진다', () => {
+  const g = island();
+  delete g.meters;
+  S.migrate(g);
+  assert.deepEqual(g.meters, { satiety: 100, hydration: 100, condition: 100 });
+  const f = start('fantasy'); S.migrate(f);
+  assert.ok(!('meters' in f));
+});
+
+test('생존 수치: AI 프롬프트에 현재 값과 규칙이 들어가고, 수치가 없는 세계관에는 들어가지 않는다', async () => {
+  const g = island();
+  S.advanceTime(g, 120, { clampToWorld: false });
+  fakeGemini(() => okJson({ narration: 'ok' }));
+  await AI.gmTurn(g, '샘으로 간다', KEY);
+  const sys = calls[0].body.systemInstruction.parts[0].text;
+  for (const t of ['생존 수치: 포만감 93/100 (양호), 수분 92/100 (양호), 컨디션 97.6/100 (양호)', '생존 수치 규칙', 'satiety=포만감', '"meterChanges"', '- 생존 수치: 포만감 93/100', '- 플래그: {"거처단계":1}']) {
+    assert.ok(sys.includes(t), t);
+  }
+  assert.ok(!sys.includes('체력을(를) 소모'), '체력 능력치가 없는 세계관에는 체력 문장을 넣지 않는다');
+  calls = [];
+  await AI.gmTurn(start('fantasy'), 'a', KEY);
+  const plain = calls[0].body.systemInstruction.parts[0].text;
+  assert.ok(!plain.includes('생존 수치') && !plain.includes('meterChanges'));
+  assert.ok(plain.includes('체력을(를) 소모'), '체력이 있는 세계관은 기존 문장 그대로');
+});
+
+test('생존 수치: 상태창 템플릿이 없는 세계관에도 세계 요약에 현재 값이 들어간다', () => {
+  const w = structuredClone(preset('island'));
+  delete w.templates;
+  const g = S.newGame(w, {});
+  S.advanceTime(g, 60, { clampToWorld: false });
+  const brief = AI.worldBrief(g, '');
+  assert.ok(brief.includes('생존 수치: 포만감 96.5/100 (양호), 수분 96/100 (양호), 컨디션 98.8/100 (양호)'));
+  assert.ok(!AI.worldBrief(start('fantasy'), '').includes('생존 수치'));
+});
+
+test('생존 수치: 테스트 모드에서 먹기·마시기 단어에 반응한다', async () => {
+  const g = island();
+  const r = await AI.gmTurn(g, '과일을 먹는다', { apiKey: '' });
+  assert.deepEqual(r.meterChanges, { satiety: 25 });
+  assert.deepEqual((await AI.gmTurn(g, '샘물을 마신다', { apiKey: '' })).meterChanges, { hydration: 30 });
+  assert.equal((await AI.gmTurn(g, '주변을 둘러본다', { apiKey: '' })).meterChanges, undefined);
+  assert.equal((await AI.gmTurn(start('fantasy'), '빵을 먹는다', { apiKey: '' })).meterChanges, undefined);
+});
+
+// ---------- 새 프리셋: 무인도, 봉쇄 도시 ----------
+const NEW = ['island', 'blockade'];
+
+test('새 프리셋: 모든 인물이 나이가 명시된 성인(20세 이상)이고 규칙에 성인·합의 문구가 있다', () => {
+  for (const id of NEW) {
+    const p = preset(id);
+    assert.ok(p.npcs.length >= 3, id);
+    for (const n of p.npcs) assert.ok(Number.isInteger(n.age) && n.age >= 20, `${id}/${n.id} ${n.age}`);
+    assert.match(p.tone, /모든 인물은 성인이다/, id);
+    assert.match(p.tone, /합의 없는 성적 행위는 묘사하지 않는다/, id);
+    assert.ok(!/꼬맹이|어린애|소녀/.test(JSON.stringify(p)), `${id}에 어린 이미지 표현이 없다`);
+  }
+});
+
+test('새 프리셋: 일과·장소·관계·단계·수치 데이터가 서로 맞물린다', () => {
+  for (const id of NEW) {
+    const p = preset(id);
+    const places = new Set(p.places.map((x) => x.id));
+    assert.ok(places.has(p.startLocation), id);
+    const ids = new Set(p.npcs.map((n) => n.id));
+    for (const n of p.npcs) for (const { key } of S.PERIODS) assert.ok(places.has(n.schedule[key]), `${id}/${n.id}/${key}`);
+    for (const [a, row] of Object.entries(p.npcRelations)) for (const b of Object.keys(row)) assert.ok(ids.has(a) && ids.has(b) && a !== b, `${id} ${a}→${b}`);
+    const st = p.relationStages;
+    assert.equal(st[0].min, 0, id);
+    assert.ok(st.every((x, i) => i === 0 || x.min > st[i - 1].min), `${id} 단계는 오름차순`);
+    assert.ok(p.endings.length >= 3 && p.endings.every((e) => e.id && e.title && e.description), id);
+    assert.ok(p.time.minMinutes <= p.time.defaultMinutes && p.time.defaultMinutes <= p.time.maxMinutes, id);
+    for (const key of ['sceneHeader', 'statusWindow']) assert.ok(p.templates[key], `${id} ${key}`);
+    assert.ok(p.opening.includes('{이름}'), `${id} 오프닝에 주인공 이름 자리`);
+    assert.ok(S.newGame(p, {}), id);
+  }
+  const m = preset('island').meters;
+  assert.equal(new Set(m.map((x) => x.id)).size, m.length);
+  for (const x of m) {
+    assert.ok(x.decayPerHour > 0 && x.levels.at(-1).min === 0, x.id);
+    assert.ok(x.levels.every((l, i) => i === 0 || l.min < x.levels[i - 1].min), `${x.id} 단계는 내림차순`);
+  }
+});
+
+test('새 프리셋: 오프닝의 상태창 숫자가 실제 시작 상태와 같다', () => {
+  const b = preset('blockade');
+  const sum = b.factions.reduce((a, f) => a + f.standing, 0);
+  assert.ok(sum <= 25);
+  assert.ok(b.opening.includes(`방주회: ${b.factions[0].standing}/25`) && b.opening.includes(`철책대: ${b.factions[1].standing}/25`) && b.opening.includes(`흑익회: ${b.factions[2].standing}/25`));
+  assert.ok(b.opening.includes(`위험구역·미확보: ${25 - sum}/25`));
+  assert.ok(b.opening.includes(`호감도: ${b.npcs[0].relationship.affection}%`));
+  const i = preset('island');
+  const g = S.newGame(i, {});
+  const o = S.meterList(g).map((m) => `${m.name} ${m.value} (${m.label})`).join(' | ');
+  assert.ok(i.opening.replace(/포만감 100/, '포만감 100').includes(o.replaceAll('포만감 100 (양호)', '포만감 100 (양호)')), '오프닝의 생존 상태가 시작 수치와 같다');
+  for (const n of i.npcs) assert.ok(i.opening.includes(`${n.name} [${S.relationStage(i, n.relationship.affection)}] 호감도 ${n.relationship.affection}%`), n.name);
+});
+
+test('새 프리셋: 봉쇄 도시 규칙에는 임무 카드를 먼저 보이는 흐름과 판정 줄 규칙이 있다', async () => {
+  const t = preset('blockade').tone;
+  for (const x of ['①→② 순서', 'templates.missionCard', '카드를 제시한 뒤에만', '카드 없이 "임무 수락"', 'choices 필드도 같다', '> 시도:', '> 결과:', '부분성공', '성공만 반복하지 않는다']) assert.ok(t.includes(x), x);
+  const g = S.newGame(preset('blockade'), {});
+  fakeGemini(() => okJson({ narration: 'ok' }));
+  await AI.gmTurn(g, '가을에게 말을 건다', KEY);
+  const sys = calls[0].body.systemInstruction.parts[0].text;
+  for (const x of ['판정', '📋 임무 — {임무명}', '```INFO', '방주회 2 | 철책대 4 | 흑익회 5']) assert.ok(sys.includes(x), x);
+});
+
+test('새 프리셋: 무인도 규칙에 생존 수치·거처·관계 단계 규칙이 있다', () => {
+  const t = preset('island').tone;
+  for (const x of ['meterChanges', '거처단계', '경계 → 동료 → 이성 → 썸 → 연인', '식수', '바닷물']) assert.ok(t.includes(x), x);
+});
+
+test('종족전쟁 상태창 템플릿은 코드블록으로 감싸져 있어 패널로 보인다', () => {
+  const w = preset('racewar').templates.statusWindow;
+  assert.ok(w.startsWith('```\n') && w.endsWith('\n```'));
+  assert.deepEqual(R.parseBlocks(w.replace(/\{[^}]*\}/g, '1')).map((b) => b.type), ['code']);
 });

@@ -73,7 +73,7 @@ export function newGame(world, custom) {
     npcs: Object.fromEntries(w.npcs.map((n) => [n.id, { ...n.relationship, memories: [], memorySummary: '', summarizedCount: 0 }])),
     npcRelations,
     factions: Object.fromEntries(w.factions.map((f) => [f.id, f.standing])),
-    flags: {},
+    flags: { ...(w.initialFlags ?? {}) },
     quests: [],
     goalProgress: 0,
     ending: null,
@@ -83,7 +83,41 @@ export function newGame(world, custom) {
     createdAt: Date.now(),
     // 선택 필드 startChoices가 있으면 오프닝 전에 선택을 기다린다
     ...(w.startChoices?.length ? { pendingStart: true, faction: null } : {}),
+    // 선택 필드 meters가 있으면 생존 수치를 만든다
+    ...(w.meters?.length ? { meters: initMeters(w) } : {}),
   };
+}
+
+// ---------- 선택 필드 meters: 시간이 지나면 앱이 줄이는 수치 (포만감, 수분 등) ----------
+// { id, name, start, max(기본 100), decayPerHour, restFactor(잘 때 감소 배율, 기본 0.5), restRecoverPerHour(잘 때 시간당 회복, 기본 0), levels:[{min,label}], restoreWords?, restore? }
+const meterMax = (m) => (Number.isFinite(Number(m.max)) && Number(m.max) > 0 ? Number(m.max) : 100);
+const round1 = (v) => Math.round(v * 10) / 10;
+function initMeters(w) {
+  return Object.fromEntries(w.meters.map((m) => [m.id, clamp(num(m.start ?? meterMax(m)), 0, meterMax(m))]));
+}
+
+// 값에 맞는 단계 이름. 단계는 min이 큰 것부터 맞는 첫 항목을 쓴다.
+export function meterLabel(meter, value) {
+  const levels = [...(meter.levels ?? [])].sort((a, b) => b.min - a.min);
+  return levels.find((l) => value >= l.min)?.label ?? null;
+}
+
+// 화면과 AI 프롬프트가 같이 쓰는 목록
+export function meterList(g) {
+  return (g.world.meters ?? []).map((m) => {
+    const value = round1(g.meters?.[m.id] ?? 0);
+    return { id: m.id, name: m.name, value, max: meterMax(m), label: meterLabel(m, value) };
+  });
+}
+
+function decayMeters(g, minutes, resting) {
+  if (!g.meters) return;
+  for (const m of g.world.meters ?? []) {
+    const factor = resting ? num(m.restFactor ?? 0.5) : 1;
+    const recover = resting ? num(m.restRecoverPerHour) : 0;
+    const next = num(g.meters[m.id]) + ((recover - num(m.decayPerHour) * factor) * minutes) / 60;
+    g.meters[m.id] = round1(clamp(next, 0, meterMax(m)));
+  }
 }
 
 // 선택 필드 startChoices: 고른 선택지의 시작 장소, 주인공 패치, NPC 관계 패치, 소속 진영을 게임에 적용한다.
@@ -131,12 +165,13 @@ export function npcsHere(g) {
 }
 
 // AI가 정한 경과 시간을 세계관 범위로 제한해 적용한다. 지나간 날 수를 돌려준다.
-export function advanceTime(g, minutes, { clampToWorld = true } = {}) {
+export function advanceTime(g, minutes, { clampToWorld = true, resting = false } = {}) {
   const t = g.world.time;
   let m = Number(minutes);
   if (!Number.isFinite(m) || m <= 0) m = t.defaultMinutes;
   if (clampToWorld) m = clamp(m, t.minMinutes, t.maxMinutes);
   g.time.minute += Math.round(m);
+  decayMeters(g, Math.round(m), resting);
   let days = 0;
   while (g.time.minute >= 1440) { g.time.minute -= 1440; g.time.day++; days++; }
   return days;
@@ -148,7 +183,7 @@ export function rest(g, minutes, { cap = true } = {}) {
   let m = Number(minutes);
   if (!Number.isFinite(m) || m <= 0) m = g.world.time.defaultMinutes;
   if (cap) m = Math.min(m, MAX_REST_MINUTES);
-  const days = advanceTime(g, m, { clampToWorld: false });
+  const days = advanceTime(g, m, { clampToWorld: false, resting: true });
   const max = g.player.statMax?.[STAMINA];
   let gained = 0;
   if (STAMINA in g.player.stats && max != null) {
@@ -192,6 +227,11 @@ export function applyResult(g, r) {
       g.player.stats[k] = next;
     }
   }
+  if (g.meters && r.meterChanges && typeof r.meterChanges === 'object' && !Array.isArray(r.meterChanges)) {
+    for (const m of g.world.meters ?? []) {
+      if (m.id in r.meterChanges) g.meters[m.id] = round1(clamp(num(g.meters[m.id]) + num(r.meterChanges[m.id]), 0, meterMax(m)));
+    }
+  }
   if (r.factionChanges && typeof r.factionChanges === 'object') {
     for (const [k, v] of Object.entries(r.factionChanges)) {
       if (k in g.factions) g.factions[k] = clamp(g.factions[k] + num(v), -100, 100);
@@ -213,6 +253,52 @@ export function applyResult(g, r) {
 
 const arr = (v) => (Array.isArray(v) ? v : []);
 
+// ---------- 체크포인트: 한 턴을 시작하기 전의 상태 ----------
+// 마지막 답변 다시 생성, 마지막 메시지 수정은 "그 턴이 없었던 상태"로 되돌린 뒤 다시 실행하는 방식이다.
+// 한 턴이 관계, 수치, 시간, 플래그, 세력, 퀘스트, 요약 위치까지 바꾸므로 하나씩 되돌리지 않고 통째로 보관한다.
+// 최신 턴 하나만 보관한다(마지막 메시지만 고칠 수 있다).
+const NOT_STATE = new Set(['world', 'log', 'checkpoint', 'id', 'title', 'createdAt', 'updatedAt']);
+
+// turn: { kind: 'act' | 'continue' | 'skip', text?, skipMinutes? }
+export function makeCheckpoint(g, turn) {
+  const state = {};
+  for (const [k, v] of Object.entries(g)) if (!NOT_STATE.has(k)) state[k] = structuredClone(v);
+  return { turn: { kind: turn.kind, text: turn.text ?? '', skipMinutes: turn.skipMinutes ?? null }, logLength: g.log.length, state };
+}
+
+// 보관한 상태로 되돌리고 대화 기록도 그 시점까지 자른다. 보관한 게 없으면 false.
+export function restoreCheckpoint(g, cp = g.checkpoint) {
+  if (!cp?.state || !Number.isInteger(cp.logLength)) return false;
+  for (const k of Object.keys(g)) if (!NOT_STATE.has(k) && !(k in cp.state)) delete g[k];
+  Object.assign(g, structuredClone(cp.state));
+  g.log.length = Math.min(g.log.length, cp.logLength);
+  return true;
+}
+
+// 다시 생성이나 수정이 실패했을 때 원래 답변으로 돌아가기 위한 전체 복사본(대화 기록과 체크포인트 포함)
+export function snapshotAll(g) {
+  const { world, ...rest } = g; // 작품 정보는 바뀌지 않으므로 뺀다
+  return structuredClone(rest);
+}
+
+export function applySnapshot(g, snap) {
+  for (const k of Object.keys(g)) if (k !== 'world' && !(k in snap)) delete g[k];
+  Object.assign(g, structuredClone(snap));
+}
+
+// 마지막 AI 답변을 다시 만들 수 있나: 마지막 턴이 입력(act)이나 이어쓰기(continue)이고 답변이 남아 있을 때.
+// 시간 넘기기(skip)는 다시 만들 의미가 없어 제외한다.
+export function canRegenerate(g) {
+  const cp = g.checkpoint;
+  return !!cp && !g.pendingStart && (cp.turn.kind === 'act' || cp.turn.kind === 'continue') && g.log.length > cp.logLength;
+}
+
+// 마지막 플레이어 메시지를 고칠 수 있나: 마지막 턴이 입력(act)이고 그 메시지가 남아 있을 때.
+export function canEditLast(g) {
+  const cp = g.checkpoint;
+  return !!cp && !g.pendingStart && cp.turn.kind === 'act' && g.log[cp.logLength]?.role === 'player';
+}
+
 // 이전 버전 세이브에 없는 항목을 채운다.
 export function migrate(g) {
   if (!g || typeof g !== 'object' || !g.world || !g.player) return g;
@@ -226,6 +312,7 @@ export function migrate(g) {
       for (const b of g.world.npcs) if (a.id !== b.id) g.npcRelations[a.id][b.id] = { affection: 0, trust: 0, love: 0 };
     }
   }
+  if (g.world.meters?.length && !g.meters) g.meters = initMeters(g.world);
   g.version = 2;
   return g;
 }

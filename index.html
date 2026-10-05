@@ -21,6 +21,7 @@
       <h1>시뮬레이션 RP</h1>
       <div class="row">
         <button id="btn-continue" class="primary">이어하기</button>
+        <button id="btn-open-sessions">내 채팅</button>
         <button id="btn-open-slots">불러오기</button>
         <label class="btn">파일 불러오기<input type="file" id="file-import-save" accept=".json" hidden></label>
         <button id="btn-open-settings">설정</button>
@@ -35,6 +36,14 @@
       <label class="btn">세계관 파일 불러오기<input type="file" id="file-import-world" accept=".json" hidden></label>
     </div>
     <div id="world-list" class="cards"></div>
+  </section>
+
+  <!-- 채팅 목록: 같은 작품으로 만든 채팅방이 여러 개일 수 있다 -->
+  <section id="screen-sessions" class="screen" hidden>
+    <button class="back" data-goto="title">‹ 뒤로</button>
+    <h2 id="sessions-title">내 채팅</h2>
+    <div id="sessions-filter" class="row" hidden></div>
+    <div id="session-list" class="session-list"></div>
   </section>
 
   <!-- 캐릭터 설정 -->
@@ -63,6 +72,7 @@
         <div id="g-time" class="muted"></div>
       </div>
       <div class="row">
+        <button id="btn-display" class="icon-btn text-btn" aria-label="화면 표시 설정" title="화면 표시 설정">Aa</button>
         <button id="btn-save" class="icon-btn" aria-label="저장" title="저장"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M5 15v3a2 2 0 002 2h10a2 2 0 002-2v-3"/></svg></button>
         <button id="btn-settings-2" class="icon-btn" aria-label="설정" title="설정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg></button>
         <button id="btn-to-title" class="icon-btn" aria-label="처음 화면" title="처음 화면"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1v-9"/></svg></button>
@@ -73,9 +83,15 @@
         <div id="log" class="log" aria-live="polite"></div>
         <div id="status" class="status" hidden></div>
         <div id="choices" class="choices"></div>
+        <div id="suggest-panel" class="suggest" hidden></div>
+        <div class="row tools" id="composer-tools">
+          <button type="button" id="btn-suggest">추천 답변</button>
+          <button type="button" id="btn-continue-story">이어쓰기</button>
+        </div>
         <form id="action-form" class="action">
           <input id="action-input" placeholder="행동이나 대사를 자유롭게 입력" autocomplete="off" maxlength="500">
-          <button type="submit" class="primary">보내기</button>
+          <button type="submit" id="btn-send" class="primary">보내기</button>
+          <button type="button" id="btn-stop" class="danger-fill" hidden>중지</button>
         </form>
         <div class="row quick">
           <button data-skip="60">1시간 쉬기</button>
@@ -114,12 +130,29 @@
           <option value="short">짧게</option><option value="normal">보통</option><option value="long">길게</option>
         </select>
       </label>
+      <label class="check">응답을 실시간으로 표시 <input type="checkbox" name="stream" role="switch"></label>
+      <p class="muted small">끄면 응답이 완성된 뒤에 한 번에 나타납니다.</p>
       <label class="check">성인 모드 <input type="checkbox" name="adultMode" role="switch"></label>
       <p class="muted small">안전 필터는 최하 단계로 요청합니다. 미성년자가 등장하는 성적 콘텐츠는 어떤 모드에서도 차단됩니다.</p>
       <div class="row">
-        <button value="cancel">취소</button>
+        <button type="button" id="btn-settings-cancel">취소</button>
         <button value="ok" class="primary">저장</button>
       </div>
+    </form>
+  </dialog>
+
+  <!-- 화면 표시 설정 -->
+  <dialog id="dlg-display">
+    <form method="dialog" class="form" id="display-form">
+      <h3>화면 표시</h3>
+      <div class="seg" role="radiogroup" aria-label="보기 방식">
+        <button type="button" role="radio" data-mode="bubble">채팅형</button>
+        <button type="button" role="radio" data-mode="plain">소설형</button>
+      </div>
+      <label>글자 크기 <input type="range" name="fontSizeLevel" min="1" max="5" step="1"></label>
+      <label>줄 간격 <input type="range" name="lineHeightLevel" min="1" max="5" step="1"></label>
+      <div id="display-preview" class="log preview" aria-label="미리보기"></div>
+      <div class="row"><button value="close" class="primary">닫기</button></div>
     </form>
   </dialog>
 
@@ -150,7 +183,7 @@
       </label>
       <p id="editor-error" class="error"></p>
       <div class="row">
-        <button value="cancel">취소</button>
+        <button type="button" id="btn-editor-cancel">취소</button>
         <button type="button" id="btn-editor-save" class="primary">저장</button>
       </div>
     </form>
