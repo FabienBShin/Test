@@ -1307,3 +1307,31 @@ test('[저장] 한 턴의 결과가 저장소에 들어간 뒤에야 입력창�
   assert.ok(ev.includes('unlock'));
   await ctx.close();
 });
+
+test('[설정] 키 입력칸에서 Enter를 누르면 저장된다. 취소는 저장하지 않는다', async () => {
+  const { page, ctx } = await open();
+  await page.click('#btn-open-settings');
+  await page.fill('#settings-form [name=apiKey]', 'enter-key');
+  await page.press('#settings-form [name=apiKey]', 'Enter');
+  await page.waitForFunction(() => !document.querySelector('#dlg-settings').open);
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('rp.settings'))).apiKey, 'enter-key');
+  await page.click('#btn-open-settings');
+  await page.fill('#settings-form [name=apiKey]', 'cancelled');
+  await page.click('#btn-settings-cancel');
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('rp.settings'))).apiKey, 'enter-key');
+  await page.click('#btn-open-settings');
+  assert.equal(await page.inputValue('#settings-form [name=apiKey]'), 'enter-key');
+  await ctx.close();
+});
+
+test('[에디터] AI 생성 입력칸에서 Enter를 눌러도 에디터가 닫히지 않는다', async () => {
+  const { page, ctx } = await open();
+  await page.click('#btn-new-world');
+  await page.fill('#gen-prompt', '스팀펑크');
+  await page.press('#gen-prompt', 'Enter');
+  await page.waitForTimeout(300);
+  assert.ok(await page.locator('#dlg-editor').evaluate((d) => d.open));
+  await page.click('#btn-editor-cancel');
+  assert.ok(!(await page.locator('#dlg-editor').evaluate((d) => d.open)));
+  await ctx.close();
+});

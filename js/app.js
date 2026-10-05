@@ -632,6 +632,8 @@ function openSettings() {
   f.stream.checked = settings.stream !== false;
   $('#dlg-settings').showModal();
 }
+// Enter로 제출하면 저장이 눌린다 (취소는 type=button이라 제출 버튼이 아니다)
+$('#btn-settings-cancel').onclick = () => $('#dlg-settings').close('cancel');
 $('#settings-form').adultMode.addEventListener('change', (e) => {
   if (e.target.checked && !confirm('성인 모드는 성인만 사용할 수 있습니다. 만 19세 이상입니까?')) e.target.checked = false;
 });
@@ -714,6 +716,10 @@ function validateWorld(w) {
   return null;
 }
 
+$('#btn-editor-cancel').onclick = () => $('#dlg-editor').close('cancel');
+$('#gen-prompt').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('#btn-generate').click(); } // Enter가 폼 제출(에디터 닫힘)로 번지지 않게
+});
 $('#btn-generate').onclick = async (e) => {
   const prompt = $('#gen-prompt').value.trim();
   if (!prompt) return;
