@@ -826,3 +826,23 @@ test('한도 초과와 서버 오류가 섞이면 서버 오류를 알린다 (�
   await assert.rejects(AI.gmTurn(start(), 'a', KEY), (e) => e.code === 'server' && /503/.test(e.message));
   await assert.rejects(AI.gmTurn(start(), 'a', KEY), (e) => e.code === 'server' && /overloaded/.test(e.message));
 });
+
+test('날짜 제한 없음: 프리셋에 기준 기간이 없고, 목표·엔딩에 "N일 안에" 같은 문구가 없다', () => {
+  for (const p of PRESETS) {
+    assert.ok(!('days' in p.goal), `${p.id}: goal.days`);
+    const texts = [p.goal.description, ...p.endings.map((e) => e.description)].join('\n');
+    assert.doesNotMatch(texts, /\d+\s*일\s*(안에|뒤|이\s*지나|내에|째)/, p.id);
+  }
+});
+
+test('날짜 제한 없음: AI에게 기준 기간을 알리지 않고, 날짜가 많이 지나도 "지남" 표시가 없고, 날짜를 이유로 끝내지 말라고 한다', async () => {
+  const g = start();
+  g.world.goal.days = 30; // 예전 세계관에 남아 있어도 무시한다
+  g.time.day = 400;
+  fakeGemini(() => okJson({ narration: 'ok' }));
+  await AI.gmTurn(g, '둘러본다', KEY);
+  const system = calls[0].body.systemInstruction.parts[0].text;
+  assert.doesNotMatch(system, /기준 기간|기간 지남|30일/);
+  assert.match(system, /메인 목표/);
+  assert.match(system, /정해진 기한이 없다/);
+});

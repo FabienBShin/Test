@@ -27,7 +27,7 @@ export const PRESETS = [
     modules: { economy: true, stats: true },
     currency: '골드',
     time: { startDay: 1, startHour: 8, defaultMinutes: 60, minMinutes: 10, maxMinutes: 480 },
-    goal: { title: '마을의 신뢰 얻기', description: '30일 안에 길드 등급을 올리고 마을의 분쟁을 해결한다.', days: 30 },
+    goal: { title: '마을의 신뢰 얻기', description: '길드 등급을 올리고 마을의 분쟁을 해결해 신뢰를 얻는다.' },
     endings: baseEndings,
     protagonist: {
       role: '신입 모험가', background: '먼 도시에서 온 떠돌이 검사.',
@@ -66,7 +66,7 @@ export const PRESETS = [
     modules: { economy: false, stats: true },
     currency: '원',
     time: { startDay: 1, startHour: 9, defaultMinutes: 60, minMinutes: 10, maxMinutes: 240 },
-    goal: { title: '축제 무대 성공시키기', description: '30일 뒤 축제에서 동아리 공연을 성공시킨다.', days: 30 },
+    goal: { title: '축제 무대 성공시키기', description: '동아리 공연을 준비해 학기 말 축제 무대를 성공시킨다.' },
     endings: baseEndings,
     protagonist: {
       role: '편입생', background: '지방에서 올라와 자취를 시작했다.',
@@ -104,7 +104,7 @@ export const PRESETS = [
     modules: { economy: true, stats: true },
     currency: '크레딧',
     time: { startDay: 1, startHour: 7, defaultMinutes: 60, minMinutes: 10, maxMinutes: 480 },
-    goal: { title: '신호의 정체 밝히기', description: '30일 안에 신호의 출처를 밝히고 정거장을 지킨다.', days: 30 },
+    goal: { title: '신호의 정체 밝히기', description: '신호의 출처를 밝히고 정거장을 지킨다.' },
     endings: baseEndings,
     protagonist: {
       role: '정비 엔지니어', background: '본성 조선소에서 좌천되어 왔다.',
@@ -142,7 +142,7 @@ export const PRESETS = [
     modules: { economy: true, stats: false },
     currency: '냥',
     time: { startDay: 1, startHour: 6, defaultMinutes: 60, minMinutes: 10, maxMinutes: 720 },
-    goal: { title: '살아남아 자리를 잡기', description: '30일 안에 음모의 전말을 밝히고 신임을 얻는다.', days: 30 },
+    goal: { title: '살아남아 자리를 잡기', description: '음모의 전말을 밝히고 신임을 얻는다.' },
     endings: baseEndings,
     protagonist: {
       role: '신입 궁인', background: '몰락한 양반가의 딸로 생계를 위해 입궁했다.',
@@ -180,7 +180,7 @@ export const PRESETS = [
     modules: { economy: true, stats: true },
     currency: '배급표',
     time: { startDay: 1, startHour: 7, defaultMinutes: 120, minMinutes: 10, maxMinutes: 600 },
-    goal: { title: '겨울 나기', description: '30일 안에 캠프의 식량과 방어를 확보한다.', days: 30 },
+    goal: { title: '겨울 나기', description: '캠프의 식량과 방어를 확보해 겨울을 넘긴다.' },
     endings: baseEndings,
     protagonist: {
       role: '신입 생존자', background: '혼자 버티다 캠프를 발견했다.',
@@ -218,7 +218,7 @@ export const PRESETS = [
     modules: { economy: true, stats: true },
     currency: '원',
     time: { startDay: 1, startHour: 8, defaultMinutes: 60, minMinutes: 10, maxMinutes: 300 },
-    goal: { title: '카페 흑자 만들기', description: '30일 안에 카페를 흑자로 만들고 단골을 늘린다.', days: 30 },
+    goal: { title: '카페 흑자 만들기', description: '카페를 흑자로 만들고 단골을 늘린다.' },
     endings: baseEndings,
     protagonist: {
       role: '카페 사장', background: '도시 회사를 그만두고 내려왔다.',
@@ -284,8 +284,7 @@ export const PRESETS = [
 
     goal: {
       title: '소속 진영 세력도 60% 달성',
-      description: '30일 안에 소속 진영의 세력도를 60%까지 끌어올려라. 임무를 완수할 때마다 전황이 움직인다. 진영이 무너지면 모든 것이 끝난다.',
-      days: 30,
+      description: '소속 진영의 세력도를 60%까지 끌어올려라. 임무를 완수할 때마다 전황이 움직인다. 진영이 무너지면 모든 것이 끝난다.',
     },
     endings: [
       {
@@ -301,7 +300,7 @@ export const PRESETS = [
       {
         id: 'armistice',
         title: '불완전한 휴전',
-        description: '30일이 지나도 어느 진영도 60%에 닿지 못했다. 세 나라는 휴전 협정에 서명한다. 적 진영 대표와 깊은 유대를 쌓았다면, 전후의 화친을 잇는 가교가 된다.',
+        description: '전쟁이 길어지도록 어느 진영도 60%에 닿지 못했다. 지친 세 나라는 휴전 협정에 서명한다. 적 진영 대표와 깊은 유대를 쌓았다면, 전후의 화친을 잇는 가교가 된다.',
       },
     ],
 
@@ -554,7 +553,7 @@ export const PRESETS = [
     modules: { economy: false, stats: true },
     currency: '없음',
     time: { startDay: 1, startHour: 8, defaultMinutes: 30, minMinutes: 5, maxMinutes: 480 },
-    goal: { title: '구조될 때까지 살아남기', description: '30일 안에 구조 신호를 올려 구조선을 맞이하라. 식수와 식량을 안정시키고, 거처를 키우고, 동료들과 신뢰를 쌓아야 한다.', days: 30 },
+    goal: { title: '구조될 때까지 살아남기', description: '구조 신호를 올려 구조선을 맞이하라. 식수와 식량을 안정시키고, 거처를 키우고, 동료들과 신뢰를 쌓아야 한다.' },
     endings: [
       { id: 'rescued', title: '수평선 위의 배', description: '신호를 본 구조선이 섬에 닿았다. 네 사람은 함께 배에 오른다.' },
       { id: 'settled', title: '섬에서의 겨울', description: '구조는 오지 않았지만 거처와 식량은 안정되었다. 이 섬이 네 사람의 집이 되어 간다.' },
@@ -679,7 +678,7 @@ export const PRESETS = [
     modules: { economy: true, stats: true },
     currency: '보급표',
     time: { startDay: 1, startHour: 14, defaultMinutes: 15, minMinutes: 5, maxMinutes: 360 },
-    goal: { title: '청암시의 판을 바꿔라', description: '30일 안에 한 세력이 도시의 절반(13구역)을 넘게 하거나, 봉쇄 너머와 연결되는 통신을 확보하라.', days: 30 },
+    goal: { title: '청암시의 판을 바꿔라', description: '한 세력이 도시의 절반(13구역)을 넘게 하거나, 봉쇄 너머와 연결되는 통신을 확보하라.' },
     endings: [
       { id: 'order', title: '도시의 새 질서', description: '한 세력이 도시의 절반을 넘겼다. 주인공의 선택이 청암시의 다음 2년을 정한다.' },
       { id: 'breakout', title: '봉쇄 너머로', description: '봉쇄 너머와 닿는 통신이 열렸다. 도시는 처음으로 바깥의 답을 듣는다.' },

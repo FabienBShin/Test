@@ -65,7 +65,7 @@ function toast(msg) {
 // ---------- 타이틀 ----------
 
 function worldCard(w, { editable } = {}) {
-  const tags = [w.modules.economy && '💰 경제', w.modules.stats && '📊 능력치', `📅 ${w.goal.days}일`].filter(Boolean).join(' · ');
+  const tags = [w.modules.economy && '💰 경제', w.modules.stats && '📊 능력치'].filter(Boolean).join(' · ');
   const chats = store.countByWorld()[w.id] ?? 0;
   const actions = el('div', { className: 'row' },
     el('button', { className: 'primary', textContent: '새 채팅', onclick: () => openSetup(w) }),
@@ -607,7 +607,7 @@ function renderTab() {
       el('b', { textContent: `🎯 ${g.world.goal.title}` }),
       el('div', { className: 'small', textContent: g.world.goal.description }),
       meter('진행도', g.goalProgress * 2 - 100, `${g.goalProgress}/100`),
-      el('div', { className: 'small muted', textContent: `기준 기간: ${g.world.goal.days}일 (현재 ${g.time.day}일차)${g.ending ? ` · 달성한 엔딩: ${g.ending.title}` : ''}` }),
+      el('div', { className: 'small muted', textContent: `현재 ${g.time.day}일차${g.ending ? ` · 달성한 엔딩: ${g.ending.title}` : ''}` }),
       el('b', { textContent: '서브 퀘스트' }),
       ...(g.quests.length ? g.quests.map((q) => el('div', { className: 'small', textContent: `${q.done ? '✅' : '⬜'} ${q.title}` })) : [el('div', { className: 'small muted', textContent: '없음' })]),
     ],

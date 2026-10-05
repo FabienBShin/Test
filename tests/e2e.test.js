@@ -1347,3 +1347,20 @@ test('[수면] 시작 시각(아침)에 "다음 날 아침까지 자기"를 눌�
   assert.match(await page.textContent('#g-time'), /1일차 16:00/, '8시간만 잔다');
   await ctx.close();
 });
+
+test('[날짜 제한 없음] 작품 카드와 퀘스트 탭에 기준 기간이 보이지 않고, 오래 지나도 게임이 계속된다', async () => {
+  const g = await gameWithMarkdown();
+  g.time.day = 120;
+  g.world.goal.days = 30; // 예전 세이브에 남아 있어도 보이지 않는다
+  const { page, ctx, errors } = await open({ storage: { 'rp.autosave': g } });
+  assert.doesNotMatch(await page.textContent('#preset-list'), /📅/);
+  await resume(page);
+  await page.click('[data-tab=quest]');
+  const body = await page.textContent('#tab-body');
+  assert.match(body, /현재 120일차/);
+  assert.doesNotMatch(body, /기준 기간/);
+  await say(page, '계속 이야기한다');
+  assert.doesNotMatch(await logText(page), /엔딩/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
