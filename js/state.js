@@ -194,6 +194,15 @@ export function rest(g, minutes, { cap = true } = {}) {
   return { days, gained };
 }
 
+// "다음 날 아침까지 자기": 지금부터 세계관의 시작 시각(아침)까지의 분. 이미 그 시각이면 하룻밤 분량(8시간)만 잔다.
+// (예전에는 정확히 그 시각에 누르면 24시간을 잤다.)
+export const NIGHT_MINUTES = 8 * 60;
+export function minutesUntilMorning(g) {
+  const wake = (Number(g.world.time.startHour) || 0) * 60;
+  const left = (wake - g.time.minute + 1440) % 1440;
+  return left || NIGHT_MINUTES;
+}
+
 function applyRel(target, change) {
   for (const k of relKeys) target[k] = clamp(num(target[k]) + clamp(num(change[k]), -MAX_REL_STEP, MAX_REL_STEP), -100, 100);
 }

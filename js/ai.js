@@ -23,7 +23,7 @@ export const CHAINS = {
   summary: ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash'],
 };
 
-const cooldown = new Map(); // 모델 id → 다시 써볼 수 있는 시각(ms)
+const cooldown = new Map(); // 모델 id → { until: 다시 써볼 수 있는 시각(ms), kind: 'quota' | 'server', message }
 export const aiStatus = { lastModel: null };
 export function resetCooldowns() { cooldown.clear(); }
 
@@ -31,8 +31,20 @@ export function modelOrder(settings, task, now = Date.now()) {
   let chain = CHAINS[task] ?? CHAINS.story;
   // 목록에서 빠진 예전 모델이 저장돼 있으면 무시하고 자동 순서를 쓴다
   if (MODELS.some((m) => m.id === settings.model)) chain = [settings.model, ...chain.filter((m) => m !== settings.model)];
-  const ready = chain.filter((m) => (cooldown.get(m) ?? 0) <= now);
+  const ready = chain.filter((m) => (cooldown.get(m)?.until ?? 0) <= now);
   return ready;
+}
+
+// 쓸 수 있는 모델이 없을 때 보여 줄 오류. 쉬는 이유가 한도 초과일 때만 "한도"라고 말하고, 서버 오류나 없는 모델이면 그대로 알린다.
+export function unavailableError(settings, task, now = Date.now()) {
+  let chain = CHAINS[task] ?? CHAINS.story;
+  if (MODELS.some((m) => m.id === settings.model)) chain = [settings.model, ...chain.filter((m) => m !== settings.model)];
+  const resting = chain.map((m) => cooldown.get(m)).filter((c) => c && c.until > now);
+  const wait = resting.length ? Math.max(1, Math.ceil((Math.min(...resting.map((c) => c.until)) - now) / 1000)) : 0;
+  const hint = wait ? ` 약 ${wait}초 뒤에 다시 시도해 주세요.` : ' 잠시 후 다시 시도해 주세요.';
+  const other = resting.filter((c) => c.kind !== 'quota').at(-1);
+  if (other) return new AiError('server', `AI 서버가 응답하지 않습니다. (${other.message})${hint}`);
+  return new AiError('quota', `모든 모델의 요청 한도를 넘었습니다.${hint}`);
 }
 
 // ---------- 프롬프트 ----------
@@ -467,7 +479,7 @@ async function readStream(res, onText) {
 // onText를 주면 스트리밍(streamGenerateContent)으로 받고, signal로 중간에 멈출 수 있다.
 async function callGemini(settings, task, system, user, { onText, signal } = {}) {
   const order = modelOrder(settings, task);
-  if (!order.length) throw new AiError('quota', '모든 모델의 요청 한도를 넘었습니다. 잠시 후 다시 시도해 주세요.');
+  if (!order.length) throw unavailableError(settings, task);
   const body = JSON.stringify(buildRequest(system, user));
   const stream = typeof onText === 'function';
   let lastErr = null;
@@ -488,12 +500,12 @@ async function callGemini(settings, task, system, user, { onText, signal } = {})
         throw new AiError('key', `API 키를 확인해 주세요. (${msg})`);
       }
       // 한도 초과, 과부하, 없는 모델 → 다음 모델로
-      if (res.status === 429) cooldown.set(model, Date.now() + retryDelayMs(data));
-      else if (res.status === 404) cooldown.set(model, Date.now() + 3_600_000);
-      else cooldown.set(model, Date.now() + 30_000);
-      lastErr = res.status === 429
-        ? new AiError('quota', '모든 모델의 요청 한도를 넘었습니다. 잠시 후 다시 시도해 주세요.')
-        : new AiError('server', `AI 서버 오류 (${res.status}: ${msg})`);
+      const quota = res.status === 429;
+      const ms = quota ? retryDelayMs(data) : res.status === 404 ? 3_600_000 : 30_000;
+      cooldown.set(model, { until: Date.now() + ms, kind: quota ? 'quota' : 'server', message: `${res.status}: ${msg}` });
+      // 모델마다 이유가 다를 수 있다. 서버 오류가 하나라도 있으면 한도 초과로만 말하지 않는다.
+      if (!quota) lastErr = new AiError('server', `AI 서버 오류 (${res.status}: ${msg})`);
+      else lastErr ??= new AiError('quota', '모든 모델의 요청 한도를 넘었습니다. 잠시 후 다시 시도해 주세요.');
       continue;
     }
     aiStatus.lastModel = model;

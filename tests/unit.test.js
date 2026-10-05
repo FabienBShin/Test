@@ -794,3 +794,35 @@ test('종족전쟁 상태창 템플릿은 코드블록으로 감싸져 있어 �
   assert.ok(w.startsWith('```\n') && w.endsWith('\n```'));
   assert.deepEqual(R.parseBlocks(w.replace(/\{[^}]*\}/g, '1')).map((b) => b.type), ['code']);
 });
+
+test('다음 날 아침까지 자기: 시작 시각까지의 분을 구하고, 정확히 그 시각이면 하룻밤(8시간)만 잔다', () => {
+  const g = start(); // 판타지: 시작 8시
+  const at = (h, m = 0) => { g.time.minute = h * 60 + m; return S.minutesUntilMorning(g); };
+  assert.equal(at(22), 10 * 60);
+  assert.equal(at(3), 5 * 60);
+  assert.equal(at(7, 59), 1);
+  assert.equal(at(8), S.NIGHT_MINUTES, '정확히 아침이면 24시간이 아니라 하룻밤');
+  assert.equal(at(8, 1), 24 * 60 - 1);
+  assert.ok(S.NIGHT_MINUTES < 24 * 60);
+  const w = structuredClone(g); w.world.time.startHour = 0; w.time.minute = 0;
+  assert.equal(S.minutesUntilMorning(w), S.NIGHT_MINUTES);
+  w.time.minute = 23 * 60;
+  assert.equal(S.minutesUntilMorning(w), 60);
+});
+
+test('쓸 수 있는 모델이 없을 때: 한도 초과는 한도라고, 서버 오류는 서버 오류라고 알린다', async () => {
+  fakeGemini(() => ({ status: 500, json: { error: { message: 'boom' } } }));
+  await assert.rejects(AI.gmTurn(start(), 'a', KEY), (e) => e.code === 'server' && /500/.test(e.message));
+  // 모두 쉬는 중: 한도 초과라고 하지 않고 서버 오류와 기다릴 시간을 알린다
+  await assert.rejects(AI.gmTurn(start(), 'a', KEY), (e) => e.code === 'server' && /boom/.test(e.message) && /\d+초/.test(e.message) && !/한도/.test(e.message));
+  AI.resetCooldowns();
+  fakeGemini(() => ({ status: 429, json: {} }));
+  await assert.rejects(AI.gmTurn(start(), 'a', KEY), (e) => e.code === 'quota');
+  await assert.rejects(AI.gmTurn(start(), 'a', KEY), (e) => e.code === 'quota' && /한도/.test(e.message) && /\d+초/.test(e.message));
+});
+
+test('한도 초과와 서버 오류가 섞이면 서버 오류를 알린다 (마지막 모델이 한도 초과여도)', async () => {
+  fakeGemini(({ model }) => (model === 'gemini-3.8-flash' ? { status: 503, json: { error: { message: 'overloaded' } } } : { status: 429, json: {} }));
+  await assert.rejects(AI.gmTurn(start(), 'a', KEY), (e) => e.code === 'server' && /503/.test(e.message));
+  await assert.rejects(AI.gmTurn(start(), 'a', KEY), (e) => e.code === 'server' && /overloaded/.test(e.message));
+});

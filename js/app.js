@@ -524,8 +524,7 @@ $('#action-form').onsubmit = (e) => {
 document.querySelectorAll('[data-skip]').forEach((b) => b.addEventListener('click', () => {
   const v = b.dataset.skip;
   if (v === 'sleep') {
-    const target = 1440 - game.time.minute + game.world.time.startHour * 60;
-    act('잠자리에 든다', { skipMinutes: target % 1440 || 1440 });
+    act('잠자리에 든다', { skipMinutes: S.minutesUntilMorning(game) });
   } else act(`${Number(v) / 60}시간 쉰다`, { skipMinutes: Number(v) });
 }));
 $('#btn-save').onclick = () => openSlots('save');
